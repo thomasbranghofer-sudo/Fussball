@@ -19,26 +19,40 @@ const SCHEMA = `{
 }`;
 
 export async function analyzeVideo(youtubeUrl, apiKey) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-calls': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1000,
-      system: `Du bist ein Fußball-Trainingsexperte. Analysiere YouTube-Trainingsvideos anhand ihrer URL und deines Fachwissens. Antworte NUR mit einem validen JSON-Objekt ohne Markdown-Formatierung. Unbekannte Felder setze auf null. Halte dich exakt an dieses Schema:\n${SCHEMA}`,
-      messages: [
-        {
-          role: 'user',
-          content: `Analysiere dieses Fußball-Trainingsvideo und gib die Eigenschaften als JSON zurück:\n${youtubeUrl}`,
-        },
-      ],
-    }),
-  });
+  let response;
+  try {
+    response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      mode: 'cors',
+      credentials: 'omit',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-calls': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        system: `Du bist ein Fußball-Trainingsexperte. Analysiere YouTube-Trainingsvideos anhand ihrer URL und deines Fachwissens. Antworte NUR mit einem validen JSON-Objekt ohne Markdown-Formatierung. Unbekannte Felder setze auf null. Halte dich exakt an dieses Schema:\n${SCHEMA}`,
+        messages: [
+          {
+            role: 'user',
+            content: `Analysiere dieses Fußball-Trainingsvideo und gib die Eigenschaften als JSON zurück:\n${youtubeUrl}`,
+          },
+        ],
+      }),
+    });
+  } catch (networkErr) {
+    throw new Error(
+      'Verbindung zur Anthropic API fehlgeschlagen.\n' +
+      'Mögliche Ursachen:\n' +
+      '• Ungültiger oder abgelaufener API-Key\n' +
+      '• Kein Internetzugang\n' +
+      '• Browser blockiert die Anfrage (iOS-Einschränkung)\n\n' +
+      'Tipp: Teste die App in Chrome oder Firefox auf einem Desktop.'
+    );
+  }
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
