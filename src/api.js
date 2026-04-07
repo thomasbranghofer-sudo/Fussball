@@ -18,19 +18,26 @@ const SCHEMA = `{
   "notizen": "string|null"
 }`;
 
-export async function analyzeVideo(youtubeUrl, apiKey) {
+export async function analyzeVideo(youtubeUrl, apiKey, proxyUrl = '') {
+  const endpoint = proxyUrl.trim() || 'https://api.anthropic.com/v1/messages';
+  const usingProxy = !!proxyUrl.trim();
+
+  const headers = {
+    'Content-Type': 'application/json',
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+  };
+  if (!usingProxy) {
+    headers['anthropic-dangerous-direct-browser-calls'] = 'true';
+  }
+
   let response;
   try {
-    response = await fetch('https://api.anthropic.com/v1/messages', {
+    response = await fetch(endpoint, {
       method: 'POST',
       mode: 'cors',
       credentials: 'omit',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-calls': 'true',
-      },
+      headers,
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 1000,
@@ -44,14 +51,10 @@ export async function analyzeVideo(youtubeUrl, apiKey) {
       }),
     });
   } catch (networkErr) {
-    throw new Error(
-      'Verbindung zur Anthropic API fehlgeschlagen.\n' +
-      'Mögliche Ursachen:\n' +
-      '• Ungültiger oder abgelaufener API-Key\n' +
-      '• Kein Internetzugang\n' +
-      '• Browser blockiert die Anfrage (iOS-Einschränkung)\n\n' +
-      'Tipp: Teste die App in Chrome oder Firefox auf einem Desktop.'
-    );
+    const hint = usingProxy
+      ? 'Ist die Proxy-URL korrekt und der Worker aktiv?'
+      : 'Tipp: Richte einen Cloudflare Worker Proxy ein (siehe ⚙ Einstellungen).';
+    throw new Error(`Verbindung fehlgeschlagen.\n${hint}`);
   }
 
   if (!response.ok) {
@@ -62,7 +65,6 @@ export async function analyzeVideo(youtubeUrl, apiKey) {
   const data = await response.json();
   const text = data?.content?.[0]?.text ?? '';
 
-  // Strip potential markdown code fences
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
 
   try {

@@ -52,6 +52,42 @@ const S = {
     outline: 'none',
   },
 
+  // Proxy settings
+  proxyToggle: {
+    marginTop: 10,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    cursor: 'pointer',
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: 12,
+    userSelect: 'none',
+  },
+  proxyBox: {
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 8,
+    padding: '12px 14px',
+    marginTop: 6,
+  },
+  proxyLabel: { color: 'rgba(255,255,255,0.5)', fontSize: 12, marginBottom: 6, display: 'block' },
+  proxyInput: {
+    width: '100%',
+    background: '#0d1a2e',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 6,
+    color: '#fff',
+    padding: '8px 12px',
+    fontSize: 13,
+    outline: 'none',
+  },
+  proxyHint: {
+    marginTop: 6,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.3)',
+    lineHeight: 1.5,
+  },
+
   // URL input
   urlSection: { marginTop: 24 },
   urlRow: { display: 'flex', gap: 10 },
@@ -103,6 +139,7 @@ const S = {
     marginTop: 16,
     color: '#ef9a9a',
     fontSize: 14,
+    whiteSpace: 'pre-line',
   },
 
   // Empty state
@@ -266,11 +303,12 @@ function FieldInput({ field, value, onChange }) {
 
 export default function App() {
   const [apiKey, setApiKey] = useState('');
+  const [proxyUrl, setProxyUrl] = useState('');
+  const [showProxy, setShowProxy] = useState(false);
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [result, setResult] = useState(null);  // raw AI result
-  const [edited, setEdited] = useState(null);  // user-editable copy
+  const [edited, setEdited] = useState(null);
   const [copied, setCopied] = useState(false);
 
   const score = edited
@@ -293,15 +331,14 @@ export default function App() {
 
     setLoading(true);
     try {
-      const data = await analyzeVideo(url.trim(), apiKey.trim());
-      setResult(data);
+      const data = await analyzeVideo(url.trim(), apiKey.trim(), proxyUrl);
       setEdited({ ...data });
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, [apiKey, url]);
+  }, [apiKey, proxyUrl, url]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') handleAnalyze();
@@ -343,6 +380,34 @@ export default function App() {
             autoComplete="off"
           />
         </div>
+
+        {/* Proxy Settings */}
+        <div
+          style={S.proxyToggle}
+          onClick={() => setShowProxy((v) => !v)}
+        >
+          <span>{showProxy ? '▾' : '▸'}</span>
+          <span>⚙ Proxy-Einstellungen (für iOS / Safari)</span>
+          {proxyUrl.trim() && <span style={{ color: '#69f0ae' }}>● aktiv</span>}
+        </div>
+
+        {showProxy && (
+          <div style={S.proxyBox}>
+            <label style={S.proxyLabel}>Cloudflare Worker URL (optional)</label>
+            <input
+              style={S.proxyInput}
+              type="url"
+              placeholder="https://anthropic-proxy.DEIN-NAME.workers.dev"
+              value={proxyUrl}
+              onChange={(e) => setProxyUrl(e.target.value)}
+              autoComplete="off"
+            />
+            <p style={S.proxyHint}>
+              Nur nötig wenn direkte API-Aufrufe blockiert werden (z.B. iOS Safari).<br />
+              Anleitung: Datei <code>cloudflare-worker.js</code> im GitHub-Repo als Cloudflare Worker deployen.
+            </p>
+          </div>
+        )}
 
         {/* URL Input */}
         <div style={S.urlSection}>
