@@ -31,30 +31,31 @@ export async function analyzeVideo(youtubeUrl, apiKey, proxyUrl = '') {
     headers['anthropic-dangerous-direct-browser-calls'] = 'true';
   }
 
+  const body = JSON.stringify({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 1000,
+    system: `Du bist ein Fußball-Trainingsexperte. Analysiere YouTube-Trainingsvideos anhand ihrer URL und deines Fachwissens. Antworte NUR mit einem validen JSON-Objekt ohne Markdown-Formatierung. Unbekannte Felder setze auf null. Halte dich exakt an dieses Schema:\n${SCHEMA}`,
+    messages: [
+      {
+        role: 'user',
+        content: `Analysiere dieses Fußball-Trainingsvideo und gib die Eigenschaften als JSON zurück:\n${youtubeUrl}`,
+      },
+    ],
+  });
+
   let response;
   try {
     response = await fetch(endpoint, {
       method: 'POST',
-      mode: 'cors',
-      credentials: 'omit',
       headers,
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        system: `Du bist ein Fußball-Trainingsexperte. Analysiere YouTube-Trainingsvideos anhand ihrer URL und deines Fachwissens. Antworte NUR mit einem validen JSON-Objekt ohne Markdown-Formatierung. Unbekannte Felder setze auf null. Halte dich exakt an dieses Schema:\n${SCHEMA}`,
-        messages: [
-          {
-            role: 'user',
-            content: `Analysiere dieses Fußball-Trainingsvideo und gib die Eigenschaften als JSON zurück:\n${youtubeUrl}`,
-          },
-        ],
-      }),
+      body,
     });
   } catch (networkErr) {
+    const detail = networkErr?.message ? ` (${networkErr.message})` : '';
     const hint = usingProxy
-      ? 'Ist die Proxy-URL korrekt und der Worker aktiv?'
-      : 'Tipp: Richte einen Cloudflare Worker Proxy ein (siehe ⚙ Einstellungen).';
-    throw new Error(`Verbindung fehlgeschlagen.\n${hint}`);
+      ? `Proxy-Verbindung fehlgeschlagen${detail}.\nIst die Worker-URL korrekt? → ${endpoint}`
+      : `Direkte API-Verbindung fehlgeschlagen${detail}.\nTipp: Cloudflare Worker Proxy einrichten (⚙ Einstellungen).`;
+    throw new Error(hint);
   }
 
   if (!response.ok) {
@@ -64,7 +65,6 @@ export async function analyzeVideo(youtubeUrl, apiKey, proxyUrl = '') {
 
   const data = await response.json();
   const text = data?.content?.[0]?.text ?? '';
-
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
 
   try {
