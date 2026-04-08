@@ -18,44 +18,50 @@ const SCHEMA = `{
   "notizen": "string|null"
 }`;
 
+const SYSTEM_PROMPT = `Du bist ein Fußball-Trainingsexperte. Analysiere YouTube-Trainingsvideos anhand ihrer URL und deines Fachwissens. Antworte NUR mit einem validen JSON-Objekt ohne Markdown-Formatierung. Unbekannte Felder setze auf null. Halte dich exakt an dieses Schema:\n${SCHEMA}`;
+
 export async function analyzeVideo(youtubeUrl, apiKey, proxyUrl = '') {
-  const endpoint = proxyUrl.trim() || 'https://api.anthropic.com/v1/messages';
   const usingProxy = !!proxyUrl.trim();
-
-  const headers = {
-    'Content-Type': 'application/json',
-    'x-api-key': apiKey,
-    'anthropic-version': '2023-06-01',
-  };
-  if (!usingProxy) {
-    headers['anthropic-dangerous-direct-browser-calls'] = 'true';
-  }
-
-  const body = JSON.stringify({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 1000,
-    system: `Du bist ein Fußball-Trainingsexperte. Analysiere YouTube-Trainingsvideos anhand ihrer URL und deines Fachwissens. Antworte NUR mit einem validen JSON-Objekt ohne Markdown-Formatierung. Unbekannte Felder setze auf null. Halte dich exakt an dieses Schema:\n${SCHEMA}`,
-    messages: [
-      {
-        role: 'user',
-        content: `Analysiere dieses Fußball-Trainingsvideo und gib die Eigenschaften als JSON zurück:\n${youtubeUrl}`,
-      },
-    ],
-  });
 
   let response;
   try {
-    response = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body,
-    });
+    if (usingProxy) {
+      // Proxy-Modus: API-Key im Body, Content-Type text/plain → kein CORS-Preflight nötig
+      response = await fetch(proxyUrl.trim(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({
+          apiKey,
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: `Analysiere dieses Fußball-Trainingsvideo und gib die Eigenschaften als JSON zurück:\n${youtubeUrl}` }],
+        }),
+      });
+    } else {
+      // Direkt-Modus (Desktop)
+      response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-calls': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: `Analysiere dieses Fußball-Trainingsvideo und gib die Eigenschaften als JSON zurück:\n${youtubeUrl}` }],
+        }),
+      });
+    }
   } catch (networkErr) {
     const detail = networkErr?.message ? ` (${networkErr.message})` : '';
-    const hint = usingProxy
-      ? `Proxy-Verbindung fehlgeschlagen${detail}.\nIst die Worker-URL korrekt? → ${endpoint}`
-      : `Direkte API-Verbindung fehlgeschlagen${detail}.\nTipp: Cloudflare Worker Proxy einrichten (⚙ Einstellungen).`;
-    throw new Error(hint);
+    throw new Error(usingProxy
+      ? `Proxy-Verbindung fehlgeschlagen${detail}.\nWorker-URL: ${proxyUrl.trim()}`
+      : `Direkte API-Verbindung fehlgeschlagen${detail}.\nTipp: Cloudflare Worker Proxy einrichten (⚙ Einstellungen).`
+    );
   }
 
   if (!response.ok) {
