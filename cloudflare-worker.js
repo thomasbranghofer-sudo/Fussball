@@ -1,15 +1,15 @@
 /**
- * Cloudflare Worker – Anthropic API Proxy + YouTube Thumbnail Proxy
+ * Cloudflare Worker – Anthropic API Proxy + YouTube Frame Proxy
  *
  * Endpoints:
- *   POST /          → Leitet Anfrage an Anthropic API weiter
- *   GET /?thumb=ID  → Gibt YouTube-Thumbnail als base64 JSON zurück
- *   GET /           → Statuscheck
+ *   POST /            → Leitet Anfrage an Anthropic API weiter
+ *   GET /?frames=ID   → Gibt alle 4 YouTube-Frames als base64 JSON-Array zurück
+ *   GET /             → Statuscheck
  */
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 
-const CORS_HEADERS = {
+const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': '*',
@@ -18,42 +18,57 @@ const CORS_HEADERS = {
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+    headers: { 'Content-Type': 'application/json', ...CORS },
   });
+}
+
+async function toBase64(url) {
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const buffer = await res.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
 }
 
 export default {
   async fetch(request) {
     if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
+      return new Response(null, { status: 204, headers: CORS });
     }
 
     const url = new URL(request.url);
 
-    // ── GET /?thumb=VIDEO_ID → Thumbnail als base64 ──────────────────────────
+    // ── GET /?frames=VIDEO_ID → alle 4 Frames als base64 ────────────────────
     if (request.method === 'GET') {
-      const videoId = url.searchParams.get('thumb');
+      const videoId = url.searchParams.get('frames');
       if (videoId) {
-        // maxresdefault zuerst, dann hqdefault als Fallback
-        for (const quality of ['maxresdefault', 'hqdefault']) {
-          const thumbUrl = `https://img.youtube.com/vi/${videoId}/${quality}.jpg`;
-          const res = await fetch(thumbUrl);
-          if (res.ok) {
-            const buffer = await res.arrayBuffer();
-            const bytes = new Uint8Array(buffer);
-            let binary = '';
-            for (let i = 0; i < bytes.byteLength; i++) {
-              binary += String.fromCharCode(bytes[i]);
-            }
-            const base64 = btoa(binary);
-            return json({ base64, mediaType: 'image/jpeg', quality });
-          }
-        }
-        return json({ error: 'Thumbnail nicht gefunden' }, 404);
+        // YouTube stellt Frames bei 0%, 25%, 50%, 75% bereit
+        const frameUrls = [
+          `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+          `https://img.youtube.com/vi/${videoId}/1.jpg`,
+          `https://img.youtube.com/vi/${videoId}/2.jpg`,
+          `https://img.youtube.com/vi/${videoId}/3.jpg`,
+        ];
+
+        const results = await Promise.all(
+          frameUrls.map(async (frameUrl, i) => {
+            let base64 = await toBase64(frameUrl);
+            // Fallback für Frame 0: hqdefault wenn maxresdefault fehlt
+            if (!base64 && i === 0) base64 = await toBase64(`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`);
+            return base64 ? { base64, mediaType: 'image/jpeg', index: i } : null;
+          })
+        );
+
+        const frames = results.filter(Boolean);
+        if (frames.length === 0) return json({ error: 'Keine Frames gefunden' }, 404);
+        return json({ frames });
       }
+
       return new Response('Anthropic Proxy aktiv ✓', {
         status: 200,
-        headers: { 'Content-Type': 'text/plain', ...CORS_HEADERS },
+        headers: { 'Content-Type': 'text/plain', ...CORS },
       });
     }
 
@@ -64,16 +79,13 @@ export default {
 
     let payload;
     try {
-      const bodyText = await request.text();
-      payload = JSON.parse(bodyText);
+      payload = JSON.parse(await request.text());
     } catch {
       return json({ error: { message: 'Ungültiges JSON im Request-Body' } }, 400);
     }
 
     const { apiKey, ...anthropicParams } = payload;
-    if (!apiKey) {
-      return json({ error: { message: 'apiKey fehlt im Request-Body' } }, 400);
-    }
+    if (!apiKey) return json({ error: { message: 'apiKey fehlt im Request-Body' } }, 400);
 
     const upstream = await fetch(ANTHROPIC_URL, {
       method: 'POST',
@@ -85,10 +97,9 @@ export default {
       body: JSON.stringify(anthropicParams),
     });
 
-    const body = await upstream.text();
-    return new Response(body, {
+    return new Response(await upstream.text(), {
       status: upstream.status,
-      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+      headers: { 'Content-Type': 'application/json', ...CORS },
     });
   },
 };

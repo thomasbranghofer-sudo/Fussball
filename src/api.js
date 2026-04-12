@@ -20,55 +20,66 @@ const SCHEMA = `{
   "notizen": "string|null"
 }`;
 
-const SYSTEM_PROMPT = `Du bist ein Fußball-Trainingsexperte. Analysiere YouTube-Trainingsvideos anhand ihrer URL, dem Vorschaubild und deines Fachwissens. Antworte NUR mit einem validen JSON-Objekt ohne Markdown-Formatierung. Unbekannte Felder setze auf null. Halte dich exakt an dieses Schema:\n${SCHEMA}`;
+const SYSTEM_PROMPT = `Du bist ein Fußball-Trainingsexperte. Analysiere YouTube-Trainingsvideos anhand ihrer URL, dem Videotitel und bis zu 4 Screenshots aus verschiedenen Zeitpunkten des Videos (Anfang, 25%, 50%, 75%). Antworte NUR mit einem validen JSON-Objekt ohne Markdown-Formatierung. Unbekannte Felder setze auf null. Halte dich exakt an dieses Schema:\n${SCHEMA}`;
 
-// Holt Video-Titel via YouTube oEmbed (CORS-frei)
 async function fetchVideoTitle(youtubeUrl, log) {
   try {
     log('🔎 Hole Video-Titel via YouTube oEmbed...');
-    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(youtubeUrl)}&format=json`;
-    const res = await fetch(oembedUrl);
+    const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(youtubeUrl)}&format=json`);
     if (!res.ok) throw new Error(`Status ${res.status}`);
     const data = await res.json();
-    log(`📋 Titel gefunden: „${data.title}"`);
+    log(`📋 Titel: „${data.title}"`);
     return data.title || null;
   } catch (e) {
-    log(`⚠️ Titel konnte nicht geladen werden: ${e.message}`);
+    log(`⚠️ Titel nicht verfügbar: ${e.message}`);
     return null;
   }
 }
 
-// Holt Thumbnail: via Worker (Proxy-Modus) oder direkt (Desktop)
-async function fetchThumbnail(videoId, proxyUrl, log) {
-  try {
-    log('🖼️ Lade Video-Thumbnail...');
-    let base64, mediaType;
+async function toBase64Direct(url) {
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const buffer = await res.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
 
+async function fetchFrames(videoId, proxyUrl, log) {
+  log('🖼️ Lade Video-Frames (Anfang, 25%, 50%, 75%)...');
+  try {
     if (proxyUrl) {
-      const res = await fetch(`${proxyUrl.replace(/\/$/, '')}?thumb=${videoId}`);
+      const res = await fetch(`${proxyUrl.replace(/\/$/, '')}?frames=${videoId}`);
       if (!res.ok) throw new Error(`Status ${res.status}`);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      base64 = data.base64;
-      mediaType = data.mediaType;
+      log(`✅ ${data.frames.length} Frame(s) über Proxy geladen`);
+      return data.frames; // [{ base64, mediaType, index }]
     } else {
-      // Direkt von YouTube (funktioniert auf Desktop)
-      const thumbUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
-      const res = await fetch(thumbUrl);
-      if (!res.ok) throw new Error(`Status ${res.status}`);
-      const buffer = await res.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
-      let binary = '';
-      for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-      base64 = btoa(binary);
-      mediaType = 'image/jpeg';
+      // Direkt von YouTube (Desktop)
+      const urls = [
+        `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+        `https://img.youtube.com/vi/${videoId}/1.jpg`,
+        `https://img.youtube.com/vi/${videoId}/2.jpg`,
+        `https://img.youtube.com/vi/${videoId}/3.jpg`,
+      ];
+      const results = await Promise.all(
+        urls.map(async (url, i) => {
+          let base64 = await toBase64Direct(url).catch(() => null);
+          if (!base64 && i === 0) {
+            base64 = await toBase64Direct(`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`).catch(() => null);
+          }
+          return base64 ? { base64, mediaType: 'image/jpeg', index: i } : null;
+        })
+      );
+      const frames = results.filter(Boolean);
+      log(`✅ ${frames.length} Frame(s) direkt geladen`);
+      return frames;
     }
-
-    log('✅ Thumbnail geladen — wird an Claude übergeben');
-    return { base64, mediaType };
   } catch (e) {
-    log(`⚠️ Thumbnail konnte nicht geladen werden: ${e.message}`);
-    return null;
+    log(`⚠️ Frames konnten nicht geladen werden: ${e.message}`);
+    return [];
   }
 }
 
@@ -76,29 +87,33 @@ export async function analyzeVideo(youtubeUrl, apiKey, proxyUrl = '', log = () =
   const usingProxy = !!proxyUrl.trim();
   const videoId = extractYouTubeId(youtubeUrl);
 
-  // Titel und Thumbnail parallel laden
-  const [title, thumbnail] = await Promise.all([
+  const [title, frames] = await Promise.all([
     fetchVideoTitle(youtubeUrl, log),
-    videoId ? fetchThumbnail(videoId, proxyUrl, log) : Promise.resolve(null),
+    videoId ? fetchFrames(videoId, proxyUrl, log) : Promise.resolve([]),
   ]);
 
-  // User-Message aufbauen
+  const labels = ['Anfang', '25%', '50%', '75%'];
   const textContent = [
     title ? `Video-Titel: „${title}"` : '',
     `YouTube-URL: ${youtubeUrl}`,
-    thumbnail ? 'Das Vorschaubild des Videos ist beigefügt.' : '',
+    frames.length > 0
+      ? `Es wurden ${frames.length} Screenshots beigefügt: ${frames.map(f => labels[f.index] ?? `Frame ${f.index}`).join(', ')}.`
+      : 'Keine Screenshots verfügbar.',
     '\nAnalysiere dieses Fußball-Trainingsvideo und gib die Eigenschaften als JSON zurück.',
   ].filter(Boolean).join('\n');
 
-  const userContent = thumbnail
-    ? [
-        { type: 'image', source: { type: 'base64', media_type: thumbnail.mediaType, data: thumbnail.base64 } },
-        { type: 'text', text: textContent },
-      ]
+  // Alle Frames als Bilder + Text in einer Message
+  const imageBlocks = frames.map((f, i) => ({
+    type: 'image',
+    source: { type: 'base64', media_type: f.mediaType, data: f.base64 },
+  }));
+
+  const userContent = frames.length > 0
+    ? [...imageBlocks, { type: 'text', text: textContent }]
     : textContent;
 
   log('📡 Sende Anfrage an Claude...');
-  log(`📝 Prompt:\n${textContent}`);
+  log(`📝 Kontext:\n${textContent}`);
 
   const body = JSON.stringify({
     ...(usingProxy ? { apiKey } : {}),
