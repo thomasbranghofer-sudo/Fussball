@@ -8,6 +8,7 @@
  * Endpoints:
  *   POST /            → Leitet Anfrage an Anthropic API weiter
  *   POST /?save=1     → Speichert Zeile in Google Sheet
+ *   GET /?pageinfo=ID → Gibt Beschreibung + Untertitel zurück (1 YouTube-Seitenaufruf)
  *   GET /?frames=ID   → Gibt alle 4 YouTube-Frames als base64 JSON-Array zurück
  *   GET /             → Statuscheck
  */
@@ -45,32 +46,72 @@ export default {
 
     const url = new URL(request.url);
 
-    // ── GET /?description=VIDEO_ID → YouTube-Beschreibung extrahieren ────────
+    // ── GET /?pageinfo=VIDEO_ID → Beschreibung + Untertitel (1 Seitenaufruf) ─
     if (request.method === 'GET') {
-      const descId = url.searchParams.get('description');
-      if (descId) {
+      const pageId = url.searchParams.get('pageinfo');
+      if (pageId) {
         try {
-          const pageRes = await fetch(`https://www.youtube.com/watch?v=${descId}`, {
+          const pageRes = await fetch(`https://www.youtube.com/watch?v=${pageId}`, {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
               'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8',
             },
           });
           const html = await pageRes.text();
-          // Extract shortDescription from ytInitialPlayerResponse embedded JSON
-          const match = html.match(/"shortDescription":"((?:[^"\\]|\\.)*)"/);
-          if (match) {
-            const desc = match[1]
+
+          // --- Beschreibung aus ytInitialPlayerResponse ---
+          let description = null;
+          const descMatch = html.match(/"shortDescription":"((?:[^"\\]|\\.)*)"/);
+          if (descMatch) {
+            description = descMatch[1]
               .replace(/\\n/g, '\n')
               .replace(/\\t/g, ' ')
               .replace(/\\"/g, '"')
               .replace(/\\\\/g, '\\')
               .trim();
-            return json({ description: desc });
           }
-          return json({ description: null });
+
+          // --- Untertitel/Transcript ---
+          let transcript = null;
+          let transcriptLang = null;
+          const trackRegex = /"baseUrl":"(https:[^"]*timedtext[^"]*)","vssId":"[^"]*","languageCode":"([^"]+)"/g;
+          const tracks = [];
+          let m;
+          while ((m = trackRegex.exec(html)) !== null) {
+            tracks.push({
+              url: m[1].replace(/\\u0026/g, '&').replace(/\\\//g, '/'),
+              lang: m[2],
+            });
+          }
+
+          if (tracks.length > 0) {
+            // Bevorzuge: de → de-* → en → en-* → erste verfügbare
+            const track =
+              tracks.find(t => t.lang === 'de') ||
+              tracks.find(t => t.lang.startsWith('de')) ||
+              tracks.find(t => t.lang === 'en') ||
+              tracks.find(t => t.lang.startsWith('en')) ||
+              tracks[0];
+            try {
+              const tRes = await fetch(track.url + '&fmt=json3');
+              if (tRes.ok) {
+                const tData = await tRes.json();
+                if (tData.events) {
+                  transcript = tData.events
+                    .filter(e => e.segs)
+                    .map(e => e.segs.map(s => (s.utf8 || '').replace(/\n/g, ' ')).join(''))
+                    .join(' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                  transcriptLang = track.lang;
+                }
+              }
+            } catch (_) { /* Transcript optional */ }
+          }
+
+          return json({ description, transcript, transcriptLang });
         } catch (e) {
-          return json({ description: null });
+          return json({ description: null, transcript: null, error: e.message });
         }
       }
     }

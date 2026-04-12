@@ -20,7 +20,7 @@ const SCHEMA = `{
   "notizen": "string|null"
 }`;
 
-const SYSTEM_PROMPT = `Du bist ein erfahrener Fußball-Trainer und Experte für Trainingsplanung. Analysiere Fußball-Trainingsvideos anhand von Titel, Beschreibung und Screenshots und leite die Eigenschaften präzise ab.
+const SYSTEM_PROMPT = `Du bist ein erfahrener Fußball-Trainer und Experte für Trainingsplanung. Analysiere Fußball-Trainingsvideos anhand von Titel, Beschreibung, Untertitel/Transkript und Screenshots und leite die Eigenschaften präzise ab.
 
 Hinweise zur Analyse:
 - titel: Kurzer, prägnanter Name der gezeigten Übung (max. 60 Zeichen, keine Kanal-/Videonamen)
@@ -67,23 +67,37 @@ async function toBase64Direct(url) {
   return btoa(binary);
 }
 
-async function fetchVideoDescription(videoId, proxyUrl, log) {
-  if (!proxyUrl) return null;
+async function fetchVideoPageInfo(videoId, proxyUrl, log) {
+  if (!proxyUrl) return { description: null, transcript: null };
   try {
-    log('📄 Hole Video-Beschreibung...');
-    const res = await fetch(`${proxyUrl.replace(/\/$/, '')}?description=${videoId}`);
+    log('📄 Lade Beschreibung + Untertitel...');
+    const res = await fetch(`${proxyUrl.replace(/\/$/, '')}?pageinfo=${videoId}`);
     if (!res.ok) throw new Error(`Status ${res.status}`);
     const data = await res.json();
+
     if (data.description) {
       const preview = data.description.substring(0, 80).replace(/\n/g, ' ');
       log(`📄 Beschreibung: „${preview}${data.description.length > 80 ? '…' : ''}"`);
-      return data.description;
+    } else {
+      log('ℹ️ Keine Beschreibung gefunden');
     }
-    log('ℹ️ Keine Beschreibung gefunden');
-    return null;
+
+    if (data.transcript) {
+      const words = data.transcript.split(' ').length;
+      log(`🎙️ Untertitel (${data.transcriptLang ?? '?'}): ${words} Wörter`);
+    } else {
+      log('ℹ️ Keine Untertitel verfügbar');
+    }
+
+    return {
+      description: data.description || null,
+      transcript: data.transcript
+        ? data.transcript.substring(0, 2500) + (data.transcript.length > 2500 ? ' […]' : '')
+        : null,
+    };
   } catch (e) {
-    log(`⚠️ Beschreibung nicht verfügbar: ${e.message}`);
-    return null;
+    log(`⚠️ Seiteninfo nicht verfügbar: ${e.message}`);
+    return { description: null, transcript: null };
   }
 }
 
@@ -128,19 +142,22 @@ export async function analyzeVideo(youtubeUrl, apiKey, proxyUrl = '', log = () =
   const usingProxy = !!proxyUrl.trim();
   const videoId = extractYouTubeId(youtubeUrl);
 
-  const [title, description, frames] = await Promise.all([
+  const [title, pageInfo, frames] = await Promise.all([
     fetchVideoTitle(youtubeUrl, log),
-    videoId ? fetchVideoDescription(videoId, proxyUrl, log) : Promise.resolve(null),
+    videoId ? fetchVideoPageInfo(videoId, proxyUrl, log) : Promise.resolve({ description: null, transcript: null }),
     videoId ? fetchFrames(videoId, proxyUrl, log) : Promise.resolve([]),
   ]);
 
-  // Limit description length to avoid token bloat
-  const descTrimmed = description ? description.substring(0, 800) + (description.length > 800 ? '\n[…gekürzt]' : '') : null;
+  const { description, transcript } = pageInfo;
+  const descTrimmed = description
+    ? description.substring(0, 800) + (description.length > 800 ? '\n[…gekürzt]' : '')
+    : null;
 
   const labels = ['Anfang', '25%', '50%', '75%'];
   const textContent = [
     title ? `Video-Titel: „${title}"` : '',
     descTrimmed ? `Video-Beschreibung:\n${descTrimmed}` : '',
+    transcript ? `Gesprochener Inhalt (Auto-Untertitel):\n${transcript}` : '',
     `YouTube-URL: ${youtubeUrl}`,
     frames.length > 0
       ? `Es wurden ${frames.length} Screenshots beigefügt: ${frames.map(f => labels[f.index] ?? `Frame ${f.index}`).join(', ')}.`
