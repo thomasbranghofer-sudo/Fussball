@@ -14,7 +14,12 @@ const SCHEMA = `{
   "anzahlHuetchen": "number|null",
   "anzahlTore": "number|null",
   "sonstigeDetails": "string|null",
-  "notizen": "string|null"
+  "notizen": "string|null",
+  "skizze": {
+    "spieler": [{"x": "number 0-1", "y": "number 0-1", "team": "A|B|N"}],
+    "pfeile":  [{"x1": "number 0-1", "y1": "number 0-1", "x2": "number 0-1", "y2": "number 0-1"}],
+    "huetchen":[{"x": "number 0-1", "y": "number 0-1"}]
+  }
 }`;
 
 const SYSTEM_PROMPT = `Du bist ein erfahrener Fußball-Trainer und Experte für Trainingsplanung. Analysiere Fußball-Trainingsvideos oder -bilder anhand von Titel, Beschreibung, Untertitel/Transkript und Screenshots und leite die Eigenschaften präzise ab.
@@ -34,6 +39,13 @@ Hinweise zur Analyse:
 - anzahlTore: Anzahl regulärer Tore (nur große Tore zählen, keine Minitore, null wenn keine)
 - sonstigeDetails: Alle weiteren relevanten Infos die nicht in andere Felder passen – z.B. Feldgröße, Taktikhinweise, Besonderheiten der Übung, verwendetes Material außer Hütchen/Tore
 - notizen: Coaching-Hinweise, Varianten und Fehlerbilder aus Beschreibung oder Untertiteln
+- skizze: Schematische Draufsicht der Übung als Koordinaten-Objekt:
+    • spieler: Positionen aller Spieler. x/y = 0..1 (0,0 = oben-links, 1,1 = unten-rechts, Mitte = 0.5/0.5).
+      team: "A" = angreifende/ballführende Gruppe (blau), "B" = verteidigende Gruppe (rot), "N" = neutral.
+    • pfeile: Bewegungsrichtungen (Laufwege, Passpfade). Zeigen wohin sich Spieler oder der Ball bewegen.
+    • huetchen: Hütchen-Positionen als Feldmarkierungen.
+    Wichtig: Nutze den gesamten Feldbereich sinnvoll. Bei Rondos: Spieler im Kreis um Mitte. Bei Spielformen: Spieler auf beiden Hälften verteilen. Hütchen als Eckpunkte des Übungsfelds.
+    null nur wenn kein sinnvolles Layout möglich.
 
 Antworte NUR mit einem validen JSON-Objekt ohne Markdown-Formatierung. Setze unbekannte Felder auf null. Schema:\n${SCHEMA}`;
 
@@ -161,7 +173,7 @@ async function sendToClaude(userContent, apiKey, proxyUrl, log) {
 
   const body = JSON.stringify({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 1000,
+    max_tokens: 1500,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userContent }],
   });

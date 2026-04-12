@@ -290,6 +290,7 @@ export default function App() {
     try {
       const data = await analyzeVideo(url.trim(), apiKey.trim(), proxyUrl, addLog);
       setEdited({ ...data });
+      if (data.skizze) setShowSketch(true);
       addLog('🎉 Analyse abgeschlossen!');
     } catch (e) {
       setError(e.message);
@@ -310,6 +311,7 @@ export default function App() {
     try {
       const data = await analyzeImages(imageFiles, imageContext, apiKey.trim(), proxyUrl, addLog);
       setEdited({ ...data });
+      if (data.skizze) setShowSketch(true);
       addLog('🎉 Analyse abgeschlossen!');
     } catch (e) {
       setError(e.message);
@@ -544,7 +546,7 @@ export default function App() {
               Spielfeld zeichnen · Spieler & Hütchen setzen · als PNG speichern
             </span>
           </div>
-          {showSketch && <SketchCanvas />}
+          {showSketch && <SketchCanvas skizzeData={edited?.skizze ?? null} />}
         </div>
       </div>
     </div>

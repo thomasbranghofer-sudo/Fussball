@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 
 const W = 640;
 const H = 400;
@@ -191,7 +191,14 @@ const S = {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function SketchCanvas() {
+// Map 0..1 coordinates to canvas pixels (accounting for field padding)
+const PAD = 20;
+const fx = x => PAD + x * (W - PAD * 2);
+const fy = y => PAD + y * (H - PAD * 2);
+
+const TEAM_COLORS = { A: '#42a5f5', B: '#ef5350', N: '#ffffff' };
+
+export default function SketchCanvas({ skizzeData }) {
   const fieldRef = useRef(null);
   const drawRef  = useRef(null);
 
@@ -203,6 +210,17 @@ export default function SketchCanvas() {
   const startXY  = useRef(null);
   const snapshot = useRef(null); // saved pixels for arrow preview
 
+  const applySkizze = useCallback((data) => {
+    if (!data || !drawRef.current) return;
+    const c = drawRef.current.getContext('2d');
+    c.clearRect(0, 0, W, H);
+    try {
+      (data.huetchen || []).forEach(h => drawConeShape(c, fx(h.x), fy(h.y)));
+      (data.spieler  || []).forEach(p => drawPlayerShape(c, fx(p.x), fy(p.y), TEAM_COLORS[p.team] ?? '#fff'));
+      (data.pfeile   || []).forEach(a => drawArrowShape(c, fx(a.x1), fy(a.y1), fx(a.x2), fy(a.y2), '#ffee58', 3));
+    } catch (_) {}
+  }, []);
+
   // Initialize canvases
   useEffect(() => {
     const fc = fieldRef.current;
@@ -211,6 +229,11 @@ export default function SketchCanvas() {
     dc.width = W; dc.height = H;
     drawField(fc);
   }, []);
+
+  // Auto-render when skizzeData arrives
+  useEffect(() => {
+    if (skizzeData && drawRef.current) applySkizze(skizzeData);
+  }, [skizzeData, applySkizze]);
 
   const ctx = () => drawRef.current?.getContext('2d');
 
@@ -327,6 +350,11 @@ export default function SketchCanvas() {
         </div>
 
         <div style={{ display: 'flex', gap: 5, marginLeft: 'auto' }}>
+          {skizzeData && (
+            <button style={S.actionBtn(false)} onClick={() => applySkizze(skizzeData)} title="KI-Skizze wiederherstellen">
+              🤖 KI-Skizze
+            </button>
+          )}
           <button style={S.actionBtn(false)} onClick={clearAll}>🗑️ Löschen</button>
           <button style={S.actionBtn(true)} onClick={downloadPng}>⬇️ PNG</button>
         </div>
