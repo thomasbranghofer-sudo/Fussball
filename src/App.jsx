@@ -166,7 +166,7 @@ function FieldInput({ field, value, onChange }) {
 
 export default function App() {
   const [apiKey, setApiKey]         = useState('');
-  const [proxyUrl, setProxyUrl]     = useState('');
+  const [proxyUrl, setProxyUrl]     = useState('https://snowy-sunset-969a.thomas-branghofer.workers.dev/');
   const [showSettings, setShowSettings] = useState(false);
   const [url, setUrl]               = useState('');
   const [loading, setLoading]       = useState(false);
