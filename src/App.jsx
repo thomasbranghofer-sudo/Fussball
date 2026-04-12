@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef } from 'react';
 import { FIELDS } from './fields.js';
 import { analyzeVideo, analyzeImages, saveToSheet } from './api.js';
 import { extractYouTubeId } from './utils.js';
+import SketchCanvas from './SketchCanvas.jsx';
 
 // ── Styles ──────────────────────────────────────────────────────────────────
 
@@ -233,6 +234,7 @@ export default function App() {
   const [copied, setCopied]         = useState(false);
   const [logs, setLogs]             = useState([]);
   const [showLog, setShowLog]       = useState(false);
+  const [showSketch, setShowSketch] = useState(false);
   const logRef = useRef(null);
 
   const score = edited
@@ -529,6 +531,21 @@ export default function App() {
             </p>
           </div>
         )}
+
+        {/* Sketch Section – always available */}
+        <div style={{ marginTop: 36, borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 24 }}>
+          <div
+            style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none', marginBottom: showSketch ? 16 : 0 }}
+            onClick={() => setShowSketch(v => !v)}
+          >
+            <span style={{ fontSize: 20, color: '#7986cb' }}>{showSketch ? '▾' : '▸'}</span>
+            <span style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>🖊️ Übungsskizze</span>
+            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', marginLeft: 4 }}>
+              Spielfeld zeichnen · Spieler & Hütchen setzen · als PNG speichern
+            </span>
+          </div>
+          {showSketch && <SketchCanvas />}
+        </div>
       </div>
     </div>
   );
