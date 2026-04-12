@@ -17,7 +17,7 @@ const SCHEMA = `{
   "notizen": "string|null"
 }`;
 
-const SYSTEM_PROMPT = `Du bist ein erfahrener Fußball-Trainer und Experte für Trainingsplanung. Analysiere Fußball-Trainingsvideos anhand von Titel, Beschreibung, Untertitel/Transkript und Screenshots und leite die Eigenschaften präzise ab.
+const SYSTEM_PROMPT = `Du bist ein erfahrener Fußball-Trainer und Experte für Trainingsplanung. Analysiere Fußball-Trainingsvideos oder -bilder anhand von Titel, Beschreibung, Untertitel/Transkript und Screenshots und leite die Eigenschaften präzise ab.
 
 Hinweise zur Analyse:
 - titel: Kurzer, prägnanter Name der gezeigten Übung (max. 60 Zeichen, keine Kanal-/Videonamen)
@@ -36,6 +36,8 @@ Hinweise zur Analyse:
 - notizen: Coaching-Hinweise, Varianten und Fehlerbilder aus Beschreibung oder Untertiteln
 
 Antworte NUR mit einem validen JSON-Objekt ohne Markdown-Formatierung. Setze unbekannte Felder auf null. Schema:\n${SCHEMA}`;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function fetchVideoTitle(youtubeUrl, log) {
   try {
@@ -68,21 +70,18 @@ async function fetchVideoPageInfo(videoId, proxyUrl, log) {
     const res = await fetch(`${proxyUrl.replace(/\/$/, '')}?pageinfo=${videoId}`);
     if (!res.ok) throw new Error(`Status ${res.status}`);
     const data = await res.json();
-
     if (data.description) {
       const preview = data.description.substring(0, 80).replace(/\n/g, ' ');
       log(`📄 Beschreibung: „${preview}${data.description.length > 80 ? '…' : ''}"`);
     } else {
       log('ℹ️ Keine Beschreibung gefunden');
     }
-
     if (data.transcript) {
       const words = data.transcript.split(' ').length;
       log(`🎙️ Untertitel (${data.transcriptLang ?? '?'}): ${words} Wörter`);
     } else {
       log('ℹ️ Keine Untertitel verfügbar');
     }
-
     return {
       description: data.description || null,
       transcript: data.transcript
@@ -104,9 +103,8 @@ async function fetchFrames(videoId, proxyUrl, log) {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       log(`✅ ${data.frames.length} Frame(s) über Proxy geladen`);
-      return data.frames; // [{ base64, mediaType, index }]
+      return data.frames;
     } else {
-      // Direkt von YouTube (Desktop)
       const urls = [
         `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
         `https://img.youtube.com/vi/${videoId}/1.jpg`,
@@ -132,45 +130,34 @@ async function fetchFrames(videoId, proxyUrl, log) {
   }
 }
 
-export async function analyzeVideo(youtubeUrl, apiKey, proxyUrl = '', log = () => {}) {
+// Resize an image File to max 1280px and return base64 JPEG
+function resizeImageToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const MAX = 1280;
+      let { width, height } = img;
+      if (width > MAX || height > MAX) {
+        if (width > height) { height = Math.round(height * MAX / width); width = MAX; }
+        else { width = Math.round(width * MAX / height); height = MAX; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', 0.88).split(',')[1]);
+    };
+    img.onerror = reject;
+    img.src = objectUrl;
+  });
+}
+
+// Shared Claude API call
+async function sendToClaude(userContent, apiKey, proxyUrl, log) {
   const usingProxy = !!proxyUrl.trim();
-  const videoId = extractYouTubeId(youtubeUrl);
-
-  const [title, pageInfo, frames] = await Promise.all([
-    fetchVideoTitle(youtubeUrl, log),
-    videoId ? fetchVideoPageInfo(videoId, proxyUrl, log) : Promise.resolve({ description: null, transcript: null }),
-    videoId ? fetchFrames(videoId, proxyUrl, log) : Promise.resolve([]),
-  ]);
-
-  const { description, transcript } = pageInfo;
-  const descTrimmed = description
-    ? description.substring(0, 800) + (description.length > 800 ? '\n[…gekürzt]' : '')
-    : null;
-
-  const labels = ['Anfang', '25%', '50%', '75%'];
-  const textContent = [
-    title ? `Video-Titel: „${title}"` : '',
-    descTrimmed ? `Video-Beschreibung:\n${descTrimmed}` : '',
-    transcript ? `Gesprochener Inhalt (Auto-Untertitel):\n${transcript}` : '',
-    `YouTube-URL: ${youtubeUrl}`,
-    frames.length > 0
-      ? `Es wurden ${frames.length} Screenshots beigefügt: ${frames.map(f => labels[f.index] ?? `Frame ${f.index}`).join(', ')}.`
-      : 'Keine Screenshots verfügbar.',
-    '\nAnalysiere dieses Fußball-Trainingsvideo und gib die Eigenschaften als JSON zurück.',
-  ].filter(Boolean).join('\n');
-
-  // Alle Frames als Bilder + Text in einer Message
-  const imageBlocks = frames.map((f, i) => ({
-    type: 'image',
-    source: { type: 'base64', media_type: f.mediaType, data: f.base64 },
-  }));
-
-  const userContent = frames.length > 0
-    ? [...imageBlocks, { type: 'text', text: textContent }]
-    : textContent;
-
   log('📡 Sende Anfrage an Claude...');
-  log(`📝 Kontext:\n${textContent}`);
 
   const body = JSON.stringify({
     model: 'claude-sonnet-4-20250514',
@@ -215,6 +202,71 @@ export async function analyzeVideo(youtubeUrl, apiKey, proxyUrl = '', log = () =
   } catch {
     throw new Error('KI-Antwort konnte nicht verarbeitet werden.');
   }
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+export async function analyzeVideo(youtubeUrl, apiKey, proxyUrl = '', log = () => {}) {
+  const videoId = extractYouTubeId(youtubeUrl);
+
+  const [title, pageInfo, frames] = await Promise.all([
+    fetchVideoTitle(youtubeUrl, log),
+    videoId ? fetchVideoPageInfo(videoId, proxyUrl, log) : Promise.resolve({ description: null, transcript: null }),
+    videoId ? fetchFrames(videoId, proxyUrl, log) : Promise.resolve([]),
+  ]);
+
+  const { description, transcript } = pageInfo;
+  const descTrimmed = description
+    ? description.substring(0, 800) + (description.length > 800 ? '\n[…gekürzt]' : '')
+    : null;
+
+  const labels = ['Anfang', '25%', '50%', '75%'];
+  const textContent = [
+    title ? `Video-Titel: „${title}"` : '',
+    descTrimmed ? `Video-Beschreibung:\n${descTrimmed}` : '',
+    transcript ? `Gesprochener Inhalt (Auto-Untertitel):\n${transcript}` : '',
+    `YouTube-URL: ${youtubeUrl}`,
+    frames.length > 0
+      ? `Es wurden ${frames.length} Screenshots beigefügt: ${frames.map(f => labels[f.index] ?? `Frame ${f.index}`).join(', ')}.`
+      : 'Keine Screenshots verfügbar.',
+    '\nAnalysiere dieses Fußball-Trainingsvideo und gib die Eigenschaften als JSON zurück.',
+  ].filter(Boolean).join('\n');
+
+  const imageBlocks = frames.map((f) => ({
+    type: 'image',
+    source: { type: 'base64', media_type: f.mediaType, data: f.base64 },
+  }));
+
+  const userContent = frames.length > 0
+    ? [...imageBlocks, { type: 'text', text: textContent }]
+    : textContent;
+
+  log(`📝 Kontext:\n${textContent}`);
+  return sendToClaude(userContent, apiKey, proxyUrl, log);
+}
+
+export async function analyzeImages(imageFiles, context, apiKey, proxyUrl = '', log = () => {}) {
+  log(`🖼️ Verarbeite ${imageFiles.length} Bild(er)...`);
+
+  const imageBlocks = await Promise.all(
+    imageFiles.map(async (file, i) => {
+      const base64 = await resizeImageToBase64(file);
+      log(`✅ Bild ${i + 1}: ${file.name} (${Math.round(file.size / 1024)} KB)`);
+      return {
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/jpeg', data: base64 },
+      };
+    })
+  );
+
+  const textParts = [
+    context?.trim() ? `Kontext / Hinweise: ${context.trim()}` : '',
+    `Es wurden ${imageFiles.length} Bild(er) zur Analyse hochgeladen.`,
+    'Analysiere diese Fußball-Trainingsbilder und gib die Eigenschaften als JSON zurück.',
+  ].filter(Boolean).join('\n');
+
+  log(`📝 Kontext:\n${textParts}`);
+  return sendToClaude([...imageBlocks, { type: 'text', text: textParts }], apiKey, proxyUrl, log);
 }
 
 export async function saveToSheet(youtubeUrl, fields, proxyUrl) {

@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { FIELDS } from './fields.js';
-import { analyzeVideo, saveToSheet } from './api.js';
+import { analyzeVideo, analyzeImages, saveToSheet } from './api.js';
 import { extractYouTubeId } from './utils.js';
 
 // ── Styles ──────────────────────────────────────────────────────────────────
@@ -46,7 +46,20 @@ const S = {
   },
   settingsHint: { fontSize: 11, color: 'rgba(255,255,255,0.3)', lineHeight: 1.5, marginTop: 4 },
 
-  urlSection: { marginTop: 24 },
+  // Mode toggle
+  modeToggle: {
+    display: 'flex', marginTop: 24,
+    border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, overflow: 'hidden',
+  },
+  modeBtn: (active) => ({
+    flex: 1, padding: '11px 16px', background: active ? '#1a2a4e' : 'transparent',
+    color: active ? '#fff' : 'rgba(255,255,255,0.4)',
+    border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: active ? 600 : 400,
+    transition: 'background 0.15s, color 0.15s',
+  }),
+  modeDivider: { width: 1, background: 'rgba(255,255,255,0.1)', flexShrink: 0 },
+
+  inputSection: { marginTop: 16 },
   urlRow: { display: 'flex', gap: 10 },
   urlInput: {
     flex: 1, background: '#0d1a2e', border: '1px solid rgba(255,255,255,0.15)',
@@ -57,6 +70,38 @@ const S = {
     padding: '12px 24px', fontSize: 15, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
   },
   analyzeBtnLoading: { background: '#1a237e', cursor: 'not-allowed' },
+
+  // Image upload
+  uploadZone: (active) => ({
+    border: `2px dashed ${active ? '#3949ab' : 'rgba(255,255,255,0.18)'}`,
+    borderRadius: 10, padding: '28px 20px', textAlign: 'center', cursor: 'pointer',
+    color: 'rgba(255,255,255,0.4)', fontSize: 14, lineHeight: 1.6,
+    background: active ? 'rgba(57,73,171,0.08)' : 'transparent',
+    transition: 'border-color 0.15s, background 0.15s',
+  }),
+  uploadIcon: { fontSize: 32, marginBottom: 8 },
+  previewGrid: { display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  previewItem: { position: 'relative', width: 76, height: 76 },
+  previewImg: {
+    width: 76, height: 76, objectFit: 'cover', borderRadius: 8,
+    border: '1px solid rgba(255,255,255,0.15)', display: 'block',
+  },
+  previewRemove: {
+    position: 'absolute', top: -7, right: -7, width: 20, height: 20,
+    borderRadius: '50%', background: '#c62828', color: '#fff',
+    border: '2px solid #060f1e', cursor: 'pointer', fontSize: 11,
+    display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700,
+    lineHeight: 1,
+  },
+  contextInput: {
+    width: '100%', background: '#0d1a2e', border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: 8, color: '#fff', padding: '10px 14px', fontSize: 14, outline: 'none',
+    marginTop: 10, boxSizing: 'border-box',
+  },
+  imageAnalyzeBtn: {
+    marginTop: 12, width: '100%', background: '#3949ab', color: '#fff', border: 'none',
+    borderRadius: 8, padding: '12px', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+  },
 
   progressWrap: { height: 4, background: 'rgba(255,255,255,0.08)', borderRadius: 2, marginTop: 8, overflow: 'hidden' },
   progressBar: {
@@ -69,7 +114,6 @@ const S = {
     padding: '12px 16px', marginTop: 16, color: '#ef9a9a', fontSize: 14, whiteSpace: 'pre-line',
   },
 
-  // Log panel
   logToggle: {
     marginTop: 12, display: 'flex', alignItems: 'center', gap: 6,
     cursor: 'pointer', color: 'rgba(255,255,255,0.3)', fontSize: 12, userSelect: 'none',
@@ -95,13 +139,6 @@ const S = {
     background: '#1b5e20', color: '#69f0ae', border: '1px solid #388e3c',
     borderRadius: 8, padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
   },
-  sheetBtn: {
-    background: '#0d47a1', color: '#90caf9', border: '1px solid #1565c0',
-    borderRadius: 8, padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-  },
-  sheetBtnDone: { background: '#0a3d15', color: '#69f0ae', border: '1px solid #388e3c' },
-  sheetBtnError: { background: '#3e0000', color: '#ef9a9a', border: '1px solid #c62828' },
-  sheetBtnBusy: { background: '#0a1f3d', color: '#5c7099', cursor: 'not-allowed' },
   copyBtnDone: { background: '#0a3d15' },
 
   fieldGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 12, marginTop: 4 },
@@ -171,17 +208,29 @@ function FieldInput({ field, value, onChange }) {
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
+const MAX_IMAGES = 8;
+
 export default function App() {
+  const [mode, setMode]             = useState('youtube'); // 'youtube' | 'images'
   const [apiKey, setApiKey]         = useState('');
   const [proxyUrl, setProxyUrl]     = useState('https://snowy-sunset-969a.thomas-branghofer.workers.dev/');
   const [showSettings, setShowSettings] = useState(false);
+
+  // YouTube mode
   const [url, setUrl]               = useState('');
+
+  // Images mode
+  const [imageFiles, setImageFiles] = useState([]);
+  const [imagePreviews, setImagePreviews] = useState([]);
+  const [dragOver, setDragOver]     = useState(false);
+  const [imageContext, setImageContext] = useState('');
+  const fileInputRef                = useRef(null);
+
+  // Shared
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState(null);
   const [edited, setEdited]         = useState(null);
   const [copied, setCopied]         = useState(false);
-  const [sheetState, setSheetState] = useState('idle'); // idle | saving | saved | error
-  const [sheetMsg, setSheetMsg]     = useState('');
   const [logs, setLogs]             = useState([]);
   const [showLog, setShowLog]       = useState(false);
   const logRef = useRef(null);
@@ -195,17 +244,45 @@ export default function App() {
     setTimeout(() => { logRef.current?.scrollTo(0, logRef.current.scrollHeight); }, 50);
   }, []);
 
-  const handleAnalyze = useCallback(async () => {
+  // ── Image helpers ────────────────────────────────────────────────────────
+
+  const addImages = useCallback((files) => {
+    const valid = Array.from(files).filter(f => f.type.startsWith('image/'));
+    setImageFiles(prev => {
+      const combined = [...prev, ...valid].slice(0, MAX_IMAGES);
+      return combined;
+    });
+    setImagePreviews(prev => {
+      const newPreviews = valid.map(f => URL.createObjectURL(f));
+      return [...prev, ...newPreviews].slice(0, MAX_IMAGES);
+    });
+  }, []);
+
+  const removeImage = useCallback((index) => {
+    setImageFiles(prev => prev.filter((_, i) => i !== index));
+    setImagePreviews(prev => {
+      URL.revokeObjectURL(prev[index]);
+      return prev.filter((_, i) => i !== index);
+    });
+  }, []);
+
+  const switchMode = (newMode) => {
+    setMode(newMode);
+    setError(null);
+    setEdited(null);
+    setLogs([]);
+  };
+
+  // ── Analyze handlers ─────────────────────────────────────────────────────
+
+  const handleAnalyzeVideo = useCallback(async () => {
     setError(null);
     setLogs([]);
-
     if (!proxyUrl.trim() && !apiKey.trim()) { setError('Bitte zuerst den Anthropic API-Key eingeben.'); return; }
     const videoId = extractYouTubeId(url.trim());
     if (!videoId) { setError('Kein gültiger YouTube-Link erkannt.'); return; }
-
     addLog(`🎬 Starte Analyse für: ${url.trim()}`);
     addLog(`🆔 Video-ID: ${videoId}`);
-
     setLoading(true);
     setShowLog(true);
     try {
@@ -220,26 +297,31 @@ export default function App() {
     }
   }, [apiKey, proxyUrl, url, addLog]);
 
-  const handleKeyDown = (e) => { if (e.key === 'Enter') handleAnalyze(); };
+  const handleAnalyzeImages = useCallback(async () => {
+    setError(null);
+    setLogs([]);
+    if (!proxyUrl.trim() && !apiKey.trim()) { setError('Bitte zuerst den Anthropic API-Key eingeben.'); return; }
+    if (imageFiles.length === 0) { setError('Bitte mindestens ein Bild auswählen.'); return; }
+    addLog(`🖼️ Starte Analyse für ${imageFiles.length} Bild(er)...`);
+    setLoading(true);
+    setShowLog(true);
+    try {
+      const data = await analyzeImages(imageFiles, imageContext, apiKey.trim(), proxyUrl, addLog);
+      setEdited({ ...data });
+      addLog('🎉 Analyse abgeschlossen!');
+    } catch (e) {
+      setError(e.message);
+      addLog(`❌ Fehler: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [apiKey, proxyUrl, imageFiles, imageContext, addLog]);
+
   const handleFieldChange = (key, value) => setEdited((prev) => ({ ...prev, [key]: value }));
 
-  const handleSaveToSheet = async () => {
-    if (!proxyUrl.trim()) { setSheetState('error'); setSheetMsg('Kein Proxy konfiguriert.'); return; }
-    setSheetState('saving');
-    setSheetMsg('');
-    try {
-      const row = await saveToSheet(url, edited, proxyUrl);
-      setSheetState('saved');
-      setSheetMsg(`✓ Zeile ${row} gespeichert`);
-      setTimeout(() => setSheetState('idle'), 4000);
-    } catch (e) {
-      setSheetState('error');
-      setSheetMsg(e.message);
-    }
-  };
-
   const handleCopy = async () => {
-    const values = [url, ...FIELDS.map((f) => {
+    const srcUrl = mode === 'youtube' ? url : '';
+    const values = [srcUrl, ...FIELDS.map((f) => {
       const v = edited[f.key];
       return v === null || v === undefined ? '' : String(v);
     })];
@@ -248,16 +330,29 @@ export default function App() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // ── Drag & Drop ──────────────────────────────────────────────────────────
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    setDragOver(false);
+    addImages(e.dataTransfer.files);
+  }, [addImages]);
+
+  const handleDragOver = (e) => { e.preventDefault(); setDragOver(true); };
+  const handleDragLeave = () => setDragOver(false);
+
+  // ── Render ───────────────────────────────────────────────────────────────
+
   return (
     <div style={S.app}>
       <header style={S.header}>
         <div style={S.logo}>⚽</div>
         <h1 style={S.title}>Trainings-Video Analyzer</h1>
-        <p style={S.subtitle}>YouTube-Links analysieren · Übungsdaten per KI ausfüllen · In Excel einfügen</p>
+        <p style={S.subtitle}>YouTube-Links oder eigene Bilder analysieren · Übungsdaten per KI ausfüllen · In Excel einfügen</p>
       </header>
 
       <div style={S.container}>
-        {/* API Key — nur anzeigen wenn kein Proxy aktiv */}
+        {/* API Key */}
         {!proxyUrl.trim() && (
           <div style={S.apiBanner}>
             <span style={S.apiBannerLabel}>🔑 Anthropic API-Key</span>
@@ -286,18 +381,85 @@ export default function App() {
           </div>
         )}
 
-        {/* URL Input */}
-        <div style={S.urlSection}>
-          <div style={S.urlRow}>
-            <input style={S.urlInput} type="url" placeholder="https://www.youtube.com/watch?v=..."
-              value={url} onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={handleKeyDown} disabled={loading} />
-            <button
-              style={{ ...S.analyzeBtn, ...(loading ? S.analyzeBtnLoading : {}) }}
-              onClick={handleAnalyze} disabled={loading}>
-              {loading ? 'Analysiere…' : 'Analysieren'}
-            </button>
-          </div>
+        {/* Mode Toggle */}
+        <div style={S.modeToggle}>
+          <button style={S.modeBtn(mode === 'youtube')} onClick={() => switchMode('youtube')}>
+            🎬 YouTube-Video
+          </button>
+          <div style={S.modeDivider} />
+          <button style={S.modeBtn(mode === 'images')} onClick={() => switchMode('images')}>
+            🖼️ Bilder hochladen
+          </button>
+        </div>
+
+        {/* Input Section */}
+        <div style={S.inputSection}>
+          {mode === 'youtube' ? (
+            /* ── YouTube Mode ── */
+            <div style={S.urlRow}>
+              <input style={S.urlInput} type="url" placeholder="https://www.youtube.com/watch?v=..."
+                value={url} onChange={(e) => setUrl(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAnalyzeVideo(); }}
+                disabled={loading} />
+              <button
+                style={{ ...S.analyzeBtn, ...(loading ? S.analyzeBtnLoading : {}) }}
+                onClick={handleAnalyzeVideo} disabled={loading}>
+                {loading ? 'Analysiere…' : 'Analysieren'}
+              </button>
+            </div>
+          ) : (
+            /* ── Images Mode ── */
+            <>
+              {/* Drop Zone */}
+              <div
+                style={S.uploadZone(dragOver)}
+                onClick={() => fileInputRef.current?.click()}
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+              >
+                <div style={S.uploadIcon}>📁</div>
+                <div>Bilder hier reinziehen oder <strong style={{ color: '#7986cb' }}>klicken zum Auswählen</strong></div>
+                <div style={{ fontSize: 12, marginTop: 4, color: 'rgba(255,255,255,0.25)' }}>
+                  JPG, PNG, HEIC · max. {MAX_IMAGES} Bilder
+                </div>
+              </div>
+              <input
+                ref={fileInputRef} type="file" accept="image/*" multiple
+                style={{ display: 'none' }}
+                onChange={(e) => addImages(e.target.files)}
+              />
+
+              {/* Previews */}
+              {imagePreviews.length > 0 && (
+                <div style={S.previewGrid}>
+                  {imagePreviews.map((src, i) => (
+                    <div key={i} style={S.previewItem}>
+                      <img src={src} alt={`Bild ${i + 1}`} style={S.previewImg} />
+                      <button style={S.previewRemove} onClick={() => removeImage(i)}>×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Optional context */}
+              <input
+                style={S.contextInput}
+                type="text"
+                placeholder="Kontext / Übungsname (optional) – z.B. 4v2 Rondo, U14"
+                value={imageContext}
+                onChange={(e) => setImageContext(e.target.value)}
+              />
+
+              <button
+                style={{ ...S.imageAnalyzeBtn, ...(loading ? S.analyzeBtnLoading : {}) }}
+                onClick={handleAnalyzeImages}
+                disabled={loading}
+              >
+                {loading ? 'Analysiere…' : `${imageFiles.length > 0 ? `${imageFiles.length} Bild${imageFiles.length > 1 ? 'er' : ''} ` : ''}Analysieren`}
+              </button>
+            </>
+          )}
 
           {loading && <div style={S.progressWrap}><div style={S.progressBar} /></div>}
           {error && <div style={S.errorBox}>⚠ {error}</div>}
@@ -331,7 +493,6 @@ export default function App() {
                 <button style={{ ...S.copyBtn, ...(copied ? S.copyBtnDone : {}) }} onClick={handleCopy}>
                   {copied ? '✓ Kopiert!' : '📋 Tab-Zeile kopieren'}
                 </button>
-                {/* Google Sheet Button deaktiviert */}
               </div>
             </div>
 
@@ -360,8 +521,12 @@ export default function App() {
           </div>
         ) : (
           <div style={S.emptyState}>
-            <div style={S.emptyIcon}>🎬</div>
-            <p style={S.emptyText}>YouTube-Link eingeben und auf „Analysieren" klicken</p>
+            <div style={S.emptyIcon}>{mode === 'youtube' ? '🎬' : '🖼️'}</div>
+            <p style={S.emptyText}>
+              {mode === 'youtube'
+                ? 'YouTube-Link eingeben und auf „Analysieren" klicken'
+                : 'Bilder hochladen und auf „Analysieren" klicken'}
+            </p>
           </div>
         )}
       </div>
