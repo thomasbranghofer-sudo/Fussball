@@ -331,13 +331,7 @@ export default function App() {
                 <button style={{ ...S.copyBtn, ...(copied ? S.copyBtnDone : {}) }} onClick={handleCopy}>
                   {copied ? '✓ Kopiert!' : '📋 Tab-Zeile kopieren'}
                 </button>
-                <button
-                  style={{ ...S.sheetBtn, ...(sheetState === 'saved' ? S.sheetBtnDone : sheetState === 'error' ? S.sheetBtnError : sheetState === 'saving' ? S.sheetBtnBusy : {}) }}
-                  onClick={handleSaveToSheet}
-                  disabled={sheetState === 'saving'}
-                >
-                  {sheetState === 'saving' ? '⏳ Speichern…' : sheetState === 'saved' ? `✓ ${sheetMsg}` : sheetState === 'error' ? `⚠ ${sheetMsg}` : '📊 In Google Sheet speichern'}
-                </button>
+                {/* Google Sheet Button deaktiviert */}
               </div>
             </div>
 
