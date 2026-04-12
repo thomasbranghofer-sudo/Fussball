@@ -1,11 +1,13 @@
 /**
- * Cloudflare Worker – Anthropic API Proxy + YouTube Frame Proxy
+ * Cloudflare Worker – Anthropic API Proxy + YouTube Frame Proxy + Google Sheet Writer
  *
- * Secret: ANTHROPIC_API_KEY muss in den Worker-Settings hinterlegt sein
- * (Workers & Pages → Settings → Variables and Secrets)
+ * Secrets (Workers & Pages → Settings → Variables and Secrets):
+ *   ANTHROPIC_API_KEY  → Anthropic API Key
+ *   GOOGLE_SHEET_URL   → Google Apps Script Web-App URL
  *
  * Endpoints:
  *   POST /            → Leitet Anfrage an Anthropic API weiter
+ *   POST /?save=1     → Speichert Zeile in Google Sheet
  *   GET /?frames=ID   → Gibt alle 4 YouTube-Frames als base64 JSON-Array zurück
  *   GET /             → Statuscheck
  */
@@ -73,6 +75,20 @@ export default {
         status: 200,
         headers: { 'Content-Type': 'text/plain', ...CORS },
       });
+    }
+
+    // ── POST /?save=1 → Google Sheet Writer ──────────────────────────────────
+    if (request.method === 'POST' && url.searchParams.get('save') === '1') {
+      const sheetUrl = env.GOOGLE_SHEET_URL;
+      if (!sheetUrl) return json({ error: { message: 'GOOGLE_SHEET_URL ist nicht als Worker-Secret konfiguriert.' } }, 500);
+      const body = await request.text();
+      const res = await fetch(sheetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      });
+      const text = await res.text();
+      return new Response(text, { status: res.status, headers: { 'Content-Type': 'application/json', ...CORS } });
     }
 
     // ── POST / → Anthropic API Proxy ─────────────────────────────────────────

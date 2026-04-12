@@ -159,3 +159,17 @@ export async function analyzeVideo(youtubeUrl, apiKey, proxyUrl = '', log = () =
     throw new Error('KI-Antwort konnte nicht verarbeitet werden.');
   }
 }
+
+export async function saveToSheet(youtubeUrl, fields, proxyUrl) {
+  const endpoint = `${proxyUrl.replace(/\/$/, '')}?save=1`;
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ url: youtubeUrl, ...fields }),
+  });
+  if (!res.ok) throw new Error(`HTTP-Fehler ${res.status}`);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message || data.error);
+  if (!data.success) throw new Error(data.error || 'Unbekannter Fehler');
+  return data.row;
+}

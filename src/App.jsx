@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { FIELDS } from './fields.js';
-import { analyzeVideo } from './api.js';
+import { analyzeVideo, saveToSheet } from './api.js';
 import { extractYouTubeId } from './utils.js';
 
 // ── Styles ──────────────────────────────────────────────────────────────────
@@ -95,6 +95,13 @@ const S = {
     background: '#1b5e20', color: '#69f0ae', border: '1px solid #388e3c',
     borderRadius: 8, padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
   },
+  sheetBtn: {
+    background: '#0d47a1', color: '#90caf9', border: '1px solid #1565c0',
+    borderRadius: 8, padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+  },
+  sheetBtnDone: { background: '#0a3d15', color: '#69f0ae', border: '1px solid #388e3c' },
+  sheetBtnError: { background: '#3e0000', color: '#ef9a9a', border: '1px solid #c62828' },
+  sheetBtnBusy: { background: '#0a1f3d', color: '#5c7099', cursor: 'not-allowed' },
   copyBtnDone: { background: '#0a3d15' },
 
   fieldGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 12, marginTop: 4 },
@@ -173,6 +180,8 @@ export default function App() {
   const [error, setError]           = useState(null);
   const [edited, setEdited]         = useState(null);
   const [copied, setCopied]         = useState(false);
+  const [sheetState, setSheetState] = useState('idle'); // idle | saving | saved | error
+  const [sheetMsg, setSheetMsg]     = useState('');
   const [logs, setLogs]             = useState([]);
   const [showLog, setShowLog]       = useState(false);
   const logRef = useRef(null);
@@ -213,6 +222,21 @@ export default function App() {
 
   const handleKeyDown = (e) => { if (e.key === 'Enter') handleAnalyze(); };
   const handleFieldChange = (key, value) => setEdited((prev) => ({ ...prev, [key]: value }));
+
+  const handleSaveToSheet = async () => {
+    if (!proxyUrl.trim()) { setSheetState('error'); setSheetMsg('Kein Proxy konfiguriert.'); return; }
+    setSheetState('saving');
+    setSheetMsg('');
+    try {
+      const row = await saveToSheet(url, edited, proxyUrl);
+      setSheetState('saved');
+      setSheetMsg(`✓ Zeile ${row} gespeichert`);
+      setTimeout(() => setSheetState('idle'), 4000);
+    } catch (e) {
+      setSheetState('error');
+      setSheetMsg(e.message);
+    }
+  };
 
   const handleCopy = async () => {
     const values = [url, ...FIELDS.map((f) => {
@@ -303,9 +327,18 @@ export default function App() {
               <span style={S.scoreText}>
                 <span style={S.scoreNum}>{score}</span> / {FIELDS.length} Felder erkannt
               </span>
-              <button style={{ ...S.copyBtn, ...(copied ? S.copyBtnDone : {}) }} onClick={handleCopy}>
-                {copied ? '✓ Kopiert!' : '📋 Tab-Zeile für Excel kopieren'}
-              </button>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button style={{ ...S.copyBtn, ...(copied ? S.copyBtnDone : {}) }} onClick={handleCopy}>
+                  {copied ? '✓ Kopiert!' : '📋 Tab-Zeile kopieren'}
+                </button>
+                <button
+                  style={{ ...S.sheetBtn, ...(sheetState === 'saved' ? S.sheetBtnDone : sheetState === 'error' ? S.sheetBtnError : sheetState === 'saving' ? S.sheetBtnBusy : {}) }}
+                  onClick={handleSaveToSheet}
+                  disabled={sheetState === 'saving'}
+                >
+                  {sheetState === 'saving' ? '⏳ Speichern…' : sheetState === 'saved' ? `✓ ${sheetMsg}` : sheetState === 'error' ? `⚠ ${sheetMsg}` : '📊 In Google Sheet speichern'}
+                </button>
+              </div>
             </div>
 
             <div style={S.fieldGrid}>
