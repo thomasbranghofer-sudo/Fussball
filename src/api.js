@@ -17,7 +17,10 @@ const SCHEMA = `{
   "materialSpieler": "string|null",
   "materialGruppe": "string|null",
   "bewertung": null,
-  "notizen": "string|null"
+  "anzahlHuetchen": "string|null",
+  "anzahlMinitore": "string|null",
+  "sonstigeMaterialien": "string|null",
+  "sonstigeAnalyseDetails": "string|null"
 }`;
 
 const SYSTEM_PROMPT = `Du bist ein erfahrener Fußball-Trainer und Experte für Trainingsplanung. Analysiere Fußball-Trainingsvideos anhand von Titel, Beschreibung, Untertitel/Transkript und Screenshots und leite die Eigenschaften präzise ab.
@@ -40,6 +43,10 @@ Hinweise zur Analyse:
 - materialGruppe: Geteilte Ausrüstung (z.B. "8 Hütchen, 4 Stangen, 2 Minitore")
 - bewertung: Immer null – wird manuell vergeben
 - notizen: Coaching-Hinweise, Varianten, Fehlerbilder oder besondere Merkmale aus der Beschreibung
+- anzahlHuetchen: zähle alle Hütchen aus den Screenshots
+- anzahlMinitore: zähle alle Minitore aus den Screenshots
+- sonstigeMaterialien: nenne alle sonstigen Materialien aus den Screenshots
+- sonstigeAnalyseDetails: nenne alls sonstigen Details aus den Screenshots
 
 Antworte NUR mit einem validen JSON-Objekt ohne Markdown-Formatierung. Setze unbekannte Felder auf null. Schema:\n${SCHEMA}`;
 
