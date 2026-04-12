@@ -1,379 +1,436 @@
-import React, { useRef, useEffect, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 
-const W = 640;
-const H = 400;
+const CW = 600, CH = 380, PAD = 20;
+const PLAYER_R = 14, CONE_S = 12;
+const TEAM_COLOR = { A: '#42a5f5', B: '#ef5350', N: '#e0e0e0' };
 
-const TOOLS = [
-  { id: 'pen',    label: 'Stift',    icon: '✏️' },
-  { id: 'player', label: 'Spieler',  icon: '⬤' },
-  { id: 'cone',   label: 'Hütchen',  icon: '▲' },
-  { id: 'arrow',  label: 'Pfeil',    icon: '→' },
-  { id: 'eraser', label: 'Radierer', icon: '◻' },
-];
-
-const COLORS = [
-  '#ffffff', '#ef5350', '#42a5f5', '#ffee58', '#ff9800', '#69f0ae',
-];
-
-// ── Canvas drawing helpers ────────────────────────────────────────────────────
+// ── Field background ──────────────────────────────────────────────────────────
 
 function drawField(canvas) {
   const ctx = canvas.getContext('2d');
-  const w = canvas.width, h = canvas.height;
-
-  // Grass
   ctx.fillStyle = '#2e7d32';
-  ctx.fillRect(0, 0, w, h);
-
-  // Subtle alternating stripes
+  ctx.fillRect(0, 0, CW, CH);
   for (let i = 0; i < 8; i++) {
-    if (i % 2 === 0) {
-      ctx.fillStyle = 'rgba(0,0,0,0.05)';
-      ctx.fillRect(i * w / 8, 0, w / 8, h);
-    }
+    if (i % 2 === 0) { ctx.fillStyle = 'rgba(0,0,0,0.05)'; ctx.fillRect(i * CW / 8, 0, CW / 8, CH); }
   }
-
-  // Field lines
   ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-  ctx.lineWidth = 1.5;
-  ctx.lineJoin = 'round';
-  const p = 20;
-
-  ctx.strokeRect(p, p, w - p * 2, h - p * 2);
-
-  // Center line (vertical)
-  ctx.beginPath();
-  ctx.moveTo(w / 2, p);
-  ctx.lineTo(w / 2, h - p);
-  ctx.stroke();
-
-  // Center circle
-  ctx.beginPath();
-  ctx.arc(w / 2, h / 2, Math.min(w, h) * 0.13, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // Center dot
+  ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+  ctx.strokeRect(PAD, PAD, CW - PAD * 2, CH - PAD * 2);
+  ctx.beginPath(); ctx.moveTo(CW / 2, PAD); ctx.lineTo(CW / 2, CH - PAD); ctx.stroke();
+  ctx.beginPath(); ctx.arc(CW / 2, CH / 2, Math.min(CW, CH) * 0.13, 0, Math.PI * 2); ctx.stroke();
   ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.beginPath();
-  ctx.arc(w / 2, h / 2, 3, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Goal areas
-  const gaw = (w - p * 2) * 0.11;
-  const gah = (h - p * 2) * 0.38;
-  const gay = (h - gah) / 2;
-  ctx.strokeRect(p, gay, gaw, gah);
-  ctx.strokeRect(w - p - gaw, gay, gaw, gah);
-
-  // Goals (thick lines)
-  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-  ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(CW / 2, CH / 2, 3, 0, Math.PI * 2); ctx.fill();
+  const gaw = (CW - PAD * 2) * 0.11, gah = (CH - PAD * 2) * 0.38, gay = (CH - gah) / 2;
+  ctx.strokeRect(PAD, gay, gaw, gah);
+  ctx.strokeRect(CW - PAD - gaw, gay, gaw, gah);
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 4;
   const gl = gah * 0.45;
-  ctx.beginPath();
-  ctx.moveTo(p, h / 2 - gl / 2);
-  ctx.lineTo(p, h / 2 + gl / 2);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(w - p, h / 2 - gl / 2);
-  ctx.lineTo(w - p, h / 2 + gl / 2);
-  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(PAD, CH / 2 - gl / 2); ctx.lineTo(PAD, CH / 2 + gl / 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(CW - PAD, CH / 2 - gl / 2); ctx.lineTo(CW - PAD, CH / 2 + gl / 2); ctx.stroke();
 }
 
-function getPos(canvas, e) {
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
-  const src = e.touches?.[0] ?? e.changedTouches?.[0] ?? e;
-  return {
-    x: (src.clientX - rect.left) * scaleX,
-    y: (src.clientY - rect.top) * scaleY,
-  };
-}
+// ── Object rendering ──────────────────────────────────────────────────────────
 
-function drawArrowShape(ctx, x1, y1, x2, y2, color, lw) {
-  const dx = x2 - x1, dy = y2 - y1;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len < 4) return;
-  const angle = Math.atan2(dy, dx);
-  const head = Math.min(22, len * 0.38);
-
+function drawArrowFn(ctx, x1, y1, x2, y2, color, lw) {
+  const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy);
+  if (len < 5) return;
+  const angle = Math.atan2(dy, dx), head = Math.min(20, len * 0.38);
   ctx.save();
-  ctx.strokeStyle = color;
-  ctx.fillStyle = color;
-  ctx.lineWidth = lw;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-
+  ctx.strokeStyle = color; ctx.fillStyle = color;
+  ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   ctx.beginPath();
   ctx.moveTo(x1, y1);
   ctx.lineTo(x2 - Math.cos(angle) * head * 0.45, y2 - Math.sin(angle) * head * 0.45);
   ctx.stroke();
-
   ctx.beginPath();
   ctx.moveTo(x2, y2);
   ctx.lineTo(x2 - head * Math.cos(angle - Math.PI / 6), y2 - head * Math.sin(angle - Math.PI / 6));
   ctx.lineTo(x2 - head * Math.cos(angle + Math.PI / 6), y2 - head * Math.sin(angle + Math.PI / 6));
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
+  ctx.closePath(); ctx.fill(); ctx.restore();
 }
 
-function drawPlayerShape(ctx, x, y, color) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(x, y, 13, 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.restore();
+function renderObjects(canvas, objects, selectedId, arrowPreview) {
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, CW, CH);
+
+  // Arrows behind
+  objects.filter(o => o.type === 'arrow').forEach(o => {
+    drawArrowFn(ctx, o.x1, o.y1, o.x2, o.y2, o.id === selectedId ? '#fff176' : '#ffee58', 2.5);
+    [[o.x1, o.y1], [o.x2, o.y2]].forEach(([px, py]) => {
+      ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2);
+      ctx.fillStyle = o.id === selectedId ? '#fff' : 'rgba(255,255,255,0.35)';
+      ctx.fill();
+    });
+  });
+
+  // Players and cones in front
+  objects.filter(o => o.type !== 'arrow').forEach(o => {
+    const sel = o.id === selectedId;
+    ctx.save();
+    if (sel) { ctx.shadowColor = '#fff'; ctx.shadowBlur = 14; }
+    if (o.type === 'player') {
+      ctx.beginPath(); ctx.arc(o.x, o.y, PLAYER_R, 0, Math.PI * 2);
+      ctx.fillStyle = TEAM_COLOR[o.team] ?? '#fff'; ctx.fill();
+      ctx.strokeStyle = sel ? '#fff' : 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = sel ? 2.5 : 1.5; ctx.stroke();
+    } else if (o.type === 'cone') {
+      ctx.beginPath();
+      ctx.moveTo(o.x, o.y - CONE_S);
+      ctx.lineTo(o.x - CONE_S * 0.75, o.y + CONE_S * 0.5);
+      ctx.lineTo(o.x + CONE_S * 0.75, o.y + CONE_S * 0.5);
+      ctx.closePath(); ctx.fillStyle = '#ff9800'; ctx.fill();
+      ctx.strokeStyle = sel ? '#fff' : 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = sel ? 2 : 1; ctx.stroke();
+    }
+    ctx.restore();
+  });
+
+  if (arrowPreview) {
+    drawArrowFn(ctx, arrowPreview.x1, arrowPreview.y1, arrowPreview.x2, arrowPreview.y2, 'rgba(255,238,88,0.55)', 2);
+  }
 }
 
-function drawConeShape(ctx, x, y) {
-  const s = 11;
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(x, y - s);
-  ctx.lineTo(x - s * 0.75, y + s * 0.5);
-  ctx.lineTo(x + s * 0.75, y + s * 0.5);
-  ctx.closePath();
-  ctx.fillStyle = '#ff9800';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.restore();
+// ── Hit testing ───────────────────────────────────────────────────────────────
+
+function hitTest(objects, x, y) {
+  for (let i = objects.length - 1; i >= 0; i--) {
+    const o = objects[i];
+    if (o.type === 'player' && Math.hypot(x - o.x, y - o.y) <= PLAYER_R + 6)
+      return { id: o.id, handle: 'move' };
+    if (o.type === 'cone' && Math.hypot(x - o.x, y - o.y) <= CONE_S + 8)
+      return { id: o.id, handle: 'move' };
+    if (o.type === 'arrow') {
+      if (Math.hypot(x - o.x1, y - o.y1) <= 12) return { id: o.id, handle: 'start' };
+      if (Math.hypot(x - o.x2, y - o.y2) <= 12) return { id: o.id, handle: 'end' };
+      const len = Math.hypot(o.x2 - o.x1, o.y2 - o.y1);
+      if (len > 0) {
+        const t = Math.max(0, Math.min(1, ((x - o.x1) * (o.x2 - o.x1) + (y - o.y1) * (o.y2 - o.y1)) / (len * len)));
+        if (Math.hypot(x - (o.x1 + t * (o.x2 - o.x1)), y - (o.y1 + t * (o.y2 - o.y1))) <= 10)
+          return { id: o.id, handle: 'move' };
+      }
+    }
+  }
+  return null;
 }
+
+function getPos(canvas, e) {
+  const rect = canvas.getBoundingClientRect();
+  const src = e.touches?.[0] ?? e.changedTouches?.[0] ?? e;
+  return {
+    x: (src.clientX - rect.left) * (canvas.width / rect.width),
+    y: (src.clientY - rect.top) * (canvas.height / rect.height),
+  };
+}
+
+// ── Palette definition ────────────────────────────────────────────────────────
+
+const PALETTE_TYPES = [
+  { key: 'playerA', label: 'Spieler A', color: '#42a5f5', type: 'player', team: 'A' },
+  { key: 'playerB', label: 'Spieler B', color: '#ef5350', type: 'player', team: 'B' },
+  { key: 'playerN', label: 'Neutral',   color: '#e0e0e0', type: 'player', team: 'N' },
+  { key: 'cone',    label: 'Hütchen',   color: '#ff9800', type: 'cone' },
+];
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const S = {
-  toolbar: {
-    display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10, alignItems: 'center',
+  root: { display: 'flex', gap: 10, alignItems: 'flex-start' },
+  palette: {
+    width: 86, flexShrink: 0,
+    background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 10, padding: '10px 8px', display: 'flex', flexDirection: 'column', gap: 6,
   },
-  toolBtn: (active) => ({
-    padding: '7px 11px', borderRadius: 7, border: 'none', cursor: 'pointer',
-    fontSize: 13, fontWeight: 600,
-    background: active ? '#3949ab' : 'rgba(255,255,255,0.1)',
-    color: active ? '#fff' : 'rgba(255,255,255,0.7)',
-    whiteSpace: 'nowrap',
+  paletteTitle: { color: 'rgba(255,255,255,0.35)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 },
+  paletteBtn: (color) => ({
+    display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px',
+    borderRadius: 7, border: '1px solid rgba(255,255,255,0.1)',
+    background: 'rgba(255,255,255,0.05)', cursor: 'pointer', color: '#fff', fontSize: 12,
   }),
-  colorDot: (active, c) => ({
-    width: 26, height: 26, borderRadius: '50%', border: active ? '3px solid #fff' : '2px solid rgba(255,255,255,0.25)',
-    background: c, cursor: 'pointer', outline: 'none',
+  paletteDot: (color) => ({
+    width: 16, height: 16, borderRadius: '50%', background: color, flexShrink: 0,
+    border: '1.5px solid rgba(255,255,255,0.4)',
   }),
-  lwBtn: (active) => ({
-    width: 32, height: 32, borderRadius: 6, border: 'none', cursor: 'pointer', display: 'flex',
-    alignItems: 'center', justifyContent: 'center',
-    background: active ? '#3949ab' : 'rgba(255,255,255,0.1)',
+  paletteSep: { height: 1, background: 'rgba(255,255,255,0.08)', margin: '3px 0' },
+  paletteArrowBtn: (active) => ({
+    display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px',
+    borderRadius: 7, border: `1px solid ${active ? '#ffee58' : 'rgba(255,255,255,0.1)'}`,
+    background: active ? 'rgba(255,238,88,0.15)' : 'rgba(255,255,255,0.05)',
+    cursor: 'pointer', color: active ? '#ffee58' : '#fff', fontSize: 12, fontWeight: active ? 700 : 400,
   }),
-  actionBtn: (green) => ({
-    padding: '7px 13px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13,
-    background: green ? '#1b5e20' : 'rgba(255,255,255,0.1)',
-    color: green ? '#69f0ae' : 'rgba(255,255,255,0.7)',
-    fontWeight: green ? 600 : 400,
+  right: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 },
+  toolbar: { display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' },
+  tbBtn: (disabled) => ({
+    padding: '7px 12px', borderRadius: 7, border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
+    background: disabled ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.1)',
+    color: disabled ? 'rgba(255,255,255,0.25)' : '#fff', fontSize: 13,
   }),
+  tbBtnRed: {
+    padding: '7px 12px', borderRadius: 7, border: 'none', cursor: 'pointer',
+    background: 'rgba(198,40,40,0.3)', color: '#ef9a9a', fontSize: 13,
+  },
+  tbBtnGreen: {
+    padding: '7px 12px', borderRadius: 7, border: 'none', cursor: 'pointer',
+    background: '#1b5e20', color: '#69f0ae', fontSize: 13, fontWeight: 600,
+  },
+  selInfo: {
+    fontSize: 12, color: 'rgba(255,255,255,0.4)', display: 'flex', alignItems: 'center', gap: 6,
+    marginLeft: 'auto',
+  },
   canvasWrap: {
     position: 'relative', width: '100%', borderRadius: 10,
-    overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)',
-    touchAction: 'none', userSelect: 'none',
+    overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)', touchAction: 'none',
   },
   fieldCanvas: { display: 'block', width: '100%' },
-  drawCanvas: {
-    position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
-    touchAction: 'none', cursor: 'crosshair',
-  },
-  hint: {
-    marginTop: 8, fontSize: 11, color: 'rgba(255,255,255,0.25)',
-  },
+  objCanvas:   { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', touchAction: 'none' },
+  hint: { fontSize: 11, color: 'rgba(255,255,255,0.22)', marginTop: 4 },
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-// Map 0..1 coordinates to canvas pixels (accounting for field padding)
-const PAD = 20;
-const fx = x => PAD + x * (W - PAD * 2);
-const fy = y => PAD + y * (H - PAD * 2);
-
-const TEAM_COLORS = { A: '#42a5f5', B: '#ef5350', N: '#ffffff' };
-
 export default function SketchCanvas({ skizzeData }) {
   const fieldRef = useRef(null);
-  const drawRef  = useRef(null);
+  const objRef   = useRef(null);
 
-  const [tool, setTool]   = useState('pen');
-  const [color, setColor] = useState('#ffffff');
-  const [lw, setLw]       = useState(3);
+  const [objects, setObjects]     = useState([]);
+  const [selectedId, setSelected] = useState(null);
+  const [addArrow, setAddArrow]   = useState(false);
+  const [arrowPrev, setArrowPrev] = useState(null);
 
-  const isDown   = useRef(false);
-  const startXY  = useRef(null);
-  const snapshot = useRef(null); // saved pixels for arrow preview
+  const historyRef = useRef([[]]);
+  const histIdxRef = useRef(0);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
 
-  const applySkizze = useCallback((data) => {
-    if (!data || !drawRef.current) return;
-    const c = drawRef.current.getContext('2d');
-    c.clearRect(0, 0, W, H);
-    try {
-      (data.huetchen || []).forEach(h => drawConeShape(c, fx(h.x), fy(h.y)));
-      (data.spieler  || []).forEach(p => drawPlayerShape(c, fx(p.x), fy(p.y), TEAM_COLORS[p.team] ?? '#fff'));
-      (data.pfeile   || []).forEach(a => drawArrowShape(c, fx(a.x1), fy(a.y1), fx(a.x2), fy(a.y2), '#ffee58', 3));
-    } catch (_) {}
+  const drag    = useRef(null); // active drag on canvas
+  const arrowP1 = useRef(null); // first click of arrow
+  const idCnt   = useRef(0);
+
+  const nextId = () => `o${++idCnt.current}`;
+
+  const updateUndoRedo = () => {
+    setCanUndo(histIdxRef.current > 0);
+    setCanRedo(histIdxRef.current < historyRef.current.length - 1);
+  };
+
+  const commit = useCallback((newObjs) => {
+    historyRef.current = historyRef.current.slice(0, histIdxRef.current + 1);
+    historyRef.current.push(newObjs.map(o => ({ ...o })));
+    histIdxRef.current = historyRef.current.length - 1;
+    setObjects(newObjs);
+    updateUndoRedo();
   }, []);
 
-  // Initialize canvases
+  const undo = () => {
+    if (histIdxRef.current <= 0) return;
+    histIdxRef.current--;
+    setObjects(historyRef.current[histIdxRef.current].map(o => ({ ...o })));
+    setSelected(null);
+    updateUndoRedo();
+  };
+
+  const redo = () => {
+    if (histIdxRef.current >= historyRef.current.length - 1) return;
+    histIdxRef.current++;
+    setObjects(historyRef.current[histIdxRef.current].map(o => ({ ...o })));
+    setSelected(null);
+    updateUndoRedo();
+  };
+
+  // Init canvases
   useEffect(() => {
-    const fc = fieldRef.current;
-    const dc = drawRef.current;
-    fc.width = W; fc.height = H;
-    dc.width = W; dc.height = H;
+    const fc = fieldRef.current, oc = objRef.current;
+    fc.width = CW; fc.height = CH;
+    oc.width = CW; oc.height = CH;
     drawField(fc);
   }, []);
 
-  // Auto-render when skizzeData arrives
+  // Re-render objects whenever state changes
   useEffect(() => {
-    if (skizzeData && drawRef.current) applySkizze(skizzeData);
-  }, [skizzeData, applySkizze]);
+    if (objRef.current) renderObjects(objRef.current, objects, selectedId, arrowPrev);
+  }, [objects, selectedId, arrowPrev]);
 
-  const ctx = () => drawRef.current?.getContext('2d');
+  // Apply skizzeData: objects placed at AI positions
+  useEffect(() => {
+    if (!skizzeData) return;
+    const fx = x => PAD + x * (CW - PAD * 2);
+    const fy = y => PAD + y * (CH - PAD * 2);
+    const newObjs = [
+      ...(skizzeData.spieler  || []).map(p => ({ id: nextId(), type: 'player', x: fx(p.x), y: fy(p.y), team: p.team || 'N' })),
+      ...(skizzeData.huetchen || []).map(h => ({ id: nextId(), type: 'cone',   x: fx(h.x), y: fy(h.y) })),
+      ...(skizzeData.pfeile   || []).map(a => ({ id: nextId(), type: 'arrow',  x1: fx(a.x1), y1: fy(a.y1), x2: fx(a.x2), y2: fy(a.y2) })),
+    ];
+    commit(newObjs);
+  }, [skizzeData]);
 
-  // ── Pointer handlers ────────────────────────────────────────────────────
+  // ── Add from palette ────────────────────────────────────────────────────────
 
-  const onDown = useCallback((e) => {
-    e.preventDefault();
-    const pos = getPos(drawRef.current, e);
-    isDown.current = true;
-    startXY.current = pos;
-    const c = ctx();
-
-    if (tool === 'player') {
-      drawPlayerShape(c, pos.x, pos.y, color);
-      isDown.current = false;
-      return;
-    }
-    if (tool === 'cone') {
-      drawConeShape(c, pos.x, pos.y);
-      isDown.current = false;
-      return;
-    }
-    if (tool === 'arrow') {
-      snapshot.current = c.getImageData(0, 0, W, H);
-      return;
-    }
-    // pen / eraser
-    c.beginPath();
-    c.moveTo(pos.x, pos.y);
-    if (tool === 'eraser') {
-      c.globalCompositeOperation = 'destination-out';
-      c.lineWidth = 22;
-    } else {
-      c.globalCompositeOperation = 'source-over';
-      c.strokeStyle = color;
-      c.lineWidth = lw;
-      c.lineCap = 'round';
-      c.lineJoin = 'round';
-    }
-  }, [tool, color, lw]);
-
-  const onMove = useCallback((e) => {
-    e.preventDefault();
-    if (!isDown.current) return;
-    const pos = getPos(drawRef.current, e);
-    const c = ctx();
-
-    if (tool === 'pen' || tool === 'eraser') {
-      c.lineTo(pos.x, pos.y);
-      c.stroke();
-    } else if (tool === 'arrow' && snapshot.current) {
-      c.putImageData(snapshot.current, 0, 0);
-      drawArrowShape(c, startXY.current.x, startXY.current.y, pos.x, pos.y, color, lw + 1);
-    }
-  }, [tool, color, lw]);
-
-  const onUp = useCallback((e) => {
-    e.preventDefault();
-    if (!isDown.current) return;
-    isDown.current = false;
-    const c = ctx();
-    c.globalCompositeOperation = 'source-over';
-
-    if (tool === 'arrow' && snapshot.current) {
-      const pos = getPos(drawRef.current, e);
-      c.putImageData(snapshot.current, 0, 0);
-      drawArrowShape(c, startXY.current.x, startXY.current.y, pos.x, pos.y, color, lw + 1);
-      snapshot.current = null;
-    }
-  }, [tool, color, lw]);
-
-  // ── Actions ─────────────────────────────────────────────────────────────
-
-  const clearAll = () => {
-    ctx().clearRect(0, 0, W, H);
+  const addObject = (def) => {
+    // Place at center with small random offset to avoid stacking
+    const offset = () => (Math.random() - 0.5) * 60;
+    const newObj = def.type === 'player'
+      ? { id: nextId(), type: 'player', x: CW / 2 + offset(), y: CH / 2 + offset(), team: def.team }
+      : { id: nextId(), type: 'cone',   x: CW / 2 + offset(), y: CH / 2 + offset() };
+    const newObjs = [...objects, newObj];
+    commit(newObjs);
+    setSelected(newObj.id);
   };
 
+  // ── Canvas interactions ─────────────────────────────────────────────────────
+
+  const deleteSelected = () => {
+    if (!selectedId) return;
+    commit(objects.filter(o => o.id !== selectedId));
+    setSelected(null);
+  };
+
+  const onCanvasDown = useCallback((e) => {
+    e.preventDefault();
+    const pos = getPos(objRef.current, e);
+
+    // Arrow drawing mode
+    if (addArrow) {
+      if (!arrowP1.current) {
+        arrowP1.current = pos;
+        setArrowPrev({ x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y });
+      } else {
+        const newArrow = { id: nextId(), type: 'arrow', x1: arrowP1.current.x, y1: arrowP1.current.y, x2: pos.x, y2: pos.y };
+        commit([...objects, newArrow]);
+        setSelected(newArrow.id);
+        arrowP1.current = null;
+        setArrowPrev(null);
+        setAddArrow(false);
+      }
+      return;
+    }
+
+    const hit = hitTest(objects, pos.x, pos.y);
+    if (hit) {
+      setSelected(hit.id);
+      const obj = objects.find(o => o.id === hit.id);
+      drag.current = { id: hit.id, handle: hit.handle, startX: pos.x, startY: pos.y, orig: { ...obj } };
+    } else {
+      setSelected(null);
+    }
+  }, [objects, addArrow]);
+
+  const onCanvasMove = useCallback((e) => {
+    e.preventDefault();
+    const pos = getPos(objRef.current, e);
+
+    if (addArrow && arrowP1.current) {
+      setArrowPrev({ x1: arrowP1.current.x, y1: arrowP1.current.y, x2: pos.x, y2: pos.y });
+      return;
+    }
+
+    if (!drag.current) return;
+    const { id, handle, startX, startY, orig } = drag.current;
+    const dx = pos.x - startX, dy = pos.y - startY;
+
+    setObjects(prev => prev.map(o => {
+      if (o.id !== id) return o;
+      if (handle === 'move') {
+        if (o.type === 'arrow') return { ...o, x1: orig.x1 + dx, y1: orig.y1 + dy, x2: orig.x2 + dx, y2: orig.y2 + dy };
+        return { ...o, x: orig.x + dx, y: orig.y + dy };
+      }
+      if (handle === 'start') return { ...o, x1: pos.x, y1: pos.y };
+      if (handle === 'end')   return { ...o, x2: pos.x, y2: pos.y };
+      return o;
+    }));
+  }, [addArrow]);
+
+  const onCanvasUp = useCallback((e) => {
+    e.preventDefault();
+    if (drag.current) {
+      // Commit final position to history
+      setObjects(prev => {
+        commit(prev);
+        return prev;
+      });
+      drag.current = null;
+    }
+  }, [commit]);
+
+  // Delete key
+  useEffect(() => {
+    const handler = (e) => { if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) deleteSelected(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [selectedId, objects]);
+
+  // Download
   const downloadPng = () => {
     const out = document.createElement('canvas');
-    out.width = W; out.height = H;
-    const c = out.getContext('2d');
-    c.drawImage(fieldRef.current, 0, 0);
-    c.drawImage(drawRef.current, 0, 0);
+    out.width = CW; out.height = CH;
+    const ctx = out.getContext('2d');
+    ctx.drawImage(fieldRef.current, 0, 0);
+    ctx.drawImage(objRef.current, 0, 0);
     const a = document.createElement('a');
     a.download = 'trainingsskizze.png';
     a.href = out.toDataURL('image/png');
     a.click();
   };
 
-  // ── Render ───────────────────────────────────────────────────────────────
+  const clearAll = () => { commit([]); setSelected(null); setAddArrow(false); arrowP1.current = null; setArrowPrev(null); };
+
+  const selectedObj = objects.find(o => o.id === selectedId);
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div>
-      {/* Tools + Colors + Actions */}
-      <div style={S.toolbar}>
-        {TOOLS.map(t => (
-          <button key={t.id} style={S.toolBtn(tool === t.id)} onClick={() => setTool(t.id)} title={t.label}>
-            {t.icon} {t.label}
+    <div style={S.root}>
+      {/* Left Palette */}
+      <div style={S.palette}>
+        <div style={S.paletteTitle}>Objekte</div>
+        {PALETTE_TYPES.map(def => (
+          <button key={def.key} style={S.paletteBtn(def.color)} onClick={() => addObject(def)} title={`${def.label} hinzufügen`}>
+            <div style={S.paletteDot(def.color)} />
+            <span style={{ fontSize: 11 }}>{def.label}</span>
           </button>
         ))}
+        <div style={S.paletteSep} />
+        <button
+          style={S.paletteArrowBtn(addArrow)}
+          onClick={() => { setAddArrow(v => !v); arrowP1.current = null; setArrowPrev(null); }}
+          title="Pfeil zeichnen (2× klicken)"
+        >
+          <span>→</span>
+          <span style={{ fontSize: 11 }}>Pfeil</span>
+        </button>
+      </div>
 
-        <div style={{ display: 'flex', gap: 5, marginLeft: 4 }}>
-          {COLORS.map(c => (
-            <button key={c} style={S.colorDot(color === c, c)} onClick={() => setColor(c)} />
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', gap: 5 }}>
-          {[2, 4, 7].map(w => (
-            <button key={w} style={S.lwBtn(lw === w)} onClick={() => setLw(w)} title={`Stärke ${w}`}>
-              <div style={{ width: w * 2.2, height: w * 2.2, borderRadius: '50%', background: '#fff' }} />
-            </button>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', gap: 5, marginLeft: 'auto' }}>
-          {skizzeData && (
-            <button style={S.actionBtn(false)} onClick={() => applySkizze(skizzeData)} title="KI-Skizze wiederherstellen">
-              🤖 KI-Skizze
-            </button>
+      {/* Right: Toolbar + Canvas */}
+      <div style={S.right}>
+        <div style={S.toolbar}>
+          <button style={S.tbBtn(!canUndo)} onClick={undo} disabled={!canUndo} title="Rückgängig">↩ Undo</button>
+          <button style={S.tbBtn(!canRedo)} onClick={redo} disabled={!canRedo} title="Wiederholen">↪ Redo</button>
+          <button style={S.tbBtn(false)} onClick={clearAll}>🗑️ Alles löschen</button>
+          <button style={S.tbBtnGreen} onClick={downloadPng}>⬇️ PNG</button>
+          {selectedObj && (
+            <div style={S.selInfo}>
+              <button style={S.tbBtnRed} onClick={deleteSelected}>✕ Entfernen</button>
+            </div>
           )}
-          <button style={S.actionBtn(false)} onClick={clearAll}>🗑️ Löschen</button>
-          <button style={S.actionBtn(true)} onClick={downloadPng}>⬇️ PNG</button>
         </div>
-      </div>
 
-      {/* Canvas */}
-      <div style={S.canvasWrap}>
-        <canvas ref={fieldRef} style={S.fieldCanvas} />
-        <canvas
-          ref={drawRef}
-          style={S.drawCanvas}
-          onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
-          onTouchStart={onDown} onTouchMove={onMove} onTouchEnd={onUp}
-        />
-      </div>
+        {addArrow && (
+          <div style={{ fontSize: 12, color: '#ffee58', padding: '4px 8px', background: 'rgba(255,238,88,0.1)', borderRadius: 6, border: '1px solid rgba(255,238,88,0.3)' }}>
+            {arrowP1.current ? '2. Klick: Endpunkt setzen' : '1. Klick: Startpunkt setzen'}
+          </div>
+        )}
 
-      <p style={S.hint}>
-        ● Spieler platzieren · ▲ Hütchen setzen · → Bewegungspfeil ziehen · ✏️ Freihand zeichnen
-      </p>
+        <div style={S.canvasWrap}>
+          <canvas ref={fieldRef} style={S.fieldCanvas} />
+          <canvas
+            ref={objRef} style={{ ...S.objCanvas, cursor: addArrow ? 'crosshair' : drag.current ? 'grabbing' : 'grab' }}
+            onMouseDown={onCanvasDown} onMouseMove={onCanvasMove} onMouseUp={onCanvasUp} onMouseLeave={onCanvasUp}
+            onTouchStart={onCanvasDown} onTouchMove={onCanvasMove} onTouchEnd={onCanvasUp}
+          />
+        </div>
+
+        <p style={S.hint}>
+          Objekte aus der Palette hinzufügen · ziehen zum Positionieren · Klick zum Auswählen · Entf/✕ zum Löschen
+        </p>
+      </div>
     </div>
   );
 }
