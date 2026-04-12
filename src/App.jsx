@@ -190,7 +190,7 @@ export default function App() {
     setError(null);
     setLogs([]);
 
-    if (!apiKey.trim()) { setError('Bitte zuerst den Anthropic API-Key eingeben.'); return; }
+    if (!proxyUrl.trim() && !apiKey.trim()) { setError('Bitte zuerst den Anthropic API-Key eingeben.'); return; }
     const videoId = extractYouTubeId(url.trim());
     if (!videoId) { setError('Kein gültiger YouTube-Link erkannt.'); return; }
 
@@ -233,12 +233,14 @@ export default function App() {
       </header>
 
       <div style={S.container}>
-        {/* API Key */}
-        <div style={S.apiBanner}>
-          <span style={S.apiBannerLabel}>🔑 Anthropic API-Key</span>
-          <input style={S.apiInput} type="password" placeholder="sk-ant-api03-..."
-            value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
-        </div>
+        {/* API Key — nur anzeigen wenn kein Proxy aktiv */}
+        {!proxyUrl.trim() && (
+          <div style={S.apiBanner}>
+            <span style={S.apiBannerLabel}>🔑 Anthropic API-Key</span>
+            <input style={S.apiInput} type="password" placeholder="sk-ant-api03-..."
+              value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
+          </div>
+        )}
 
         {/* Settings */}
         <div style={S.settingsToggle} onClick={() => setShowSettings((v) => !v)}>

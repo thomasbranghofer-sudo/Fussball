@@ -1,6 +1,9 @@
 /**
  * Cloudflare Worker – Anthropic API Proxy + YouTube Frame Proxy
  *
+ * Secret: ANTHROPIC_API_KEY muss in den Worker-Settings hinterlegt sein
+ * (Workers & Pages → Settings → Variables and Secrets)
+ *
  * Endpoints:
  *   POST /            → Leitet Anfrage an Anthropic API weiter
  *   GET /?frames=ID   → Gibt alle 4 YouTube-Frames als base64 JSON-Array zurück
@@ -33,7 +36,7 @@ async function toBase64(url) {
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS });
     }
@@ -77,15 +80,17 @@ export default {
       return new Response('Method Not Allowed', { status: 405 });
     }
 
+    const apiKey = env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return json({ error: { message: 'ANTHROPIC_API_KEY ist nicht als Worker-Secret konfiguriert.' } }, 500);
+    }
+
     let payload;
     try {
       payload = JSON.parse(await request.text());
     } catch {
       return json({ error: { message: 'Ungültiges JSON im Request-Body' } }, 400);
     }
-
-    const { apiKey, ...anthropicParams } = payload;
-    if (!apiKey) return json({ error: { message: 'apiKey fehlt im Request-Body' } }, 400);
 
     const upstream = await fetch(ANTHROPIC_URL, {
       method: 'POST',
@@ -94,7 +99,7 @@ export default {
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify(anthropicParams),
+      body: JSON.stringify(payload),
     });
 
     return new Response(await upstream.text(), {

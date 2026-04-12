@@ -116,7 +116,6 @@ export async function analyzeVideo(youtubeUrl, apiKey, proxyUrl = '', log = () =
   log(`📝 Kontext:\n${textContent}`);
 
   const body = JSON.stringify({
-    ...(usingProxy ? { apiKey } : {}),
     model: 'claude-sonnet-4-20250514',
     max_tokens: 1000,
     system: SYSTEM_PROMPT,
