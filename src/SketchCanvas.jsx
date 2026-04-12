@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 
-const CW = 600, CH = 380, PAD = 20;
+const CW = 360, CH = 540, PAD = 20;
 const PLAYER_R = 14, CONE_S = 12;
 const TEAM_COLOR = { A: '#42a5f5', B: '#ef5350', N: '#e0e0e0' };
 
@@ -10,23 +10,29 @@ function drawField(canvas) {
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#2e7d32';
   ctx.fillRect(0, 0, CW, CH);
+  // Horizontal stripes
   for (let i = 0; i < 8; i++) {
-    if (i % 2 === 0) { ctx.fillStyle = 'rgba(0,0,0,0.05)'; ctx.fillRect(i * CW / 8, 0, CW / 8, CH); }
+    if (i % 2 === 0) { ctx.fillStyle = 'rgba(0,0,0,0.05)'; ctx.fillRect(0, i * CH / 8, CW, CH / 8); }
   }
   ctx.strokeStyle = 'rgba(255,255,255,0.6)';
   ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+  // Outer boundary
   ctx.strokeRect(PAD, PAD, CW - PAD * 2, CH - PAD * 2);
-  ctx.beginPath(); ctx.moveTo(CW / 2, PAD); ctx.lineTo(CW / 2, CH - PAD); ctx.stroke();
-  ctx.beginPath(); ctx.arc(CW / 2, CH / 2, Math.min(CW, CH) * 0.13, 0, Math.PI * 2); ctx.stroke();
+  // Horizontal midline
+  ctx.beginPath(); ctx.moveTo(PAD, CH / 2); ctx.lineTo(CW - PAD, CH / 2); ctx.stroke();
+  // Center circle
+  ctx.beginPath(); ctx.arc(CW / 2, CH / 2, Math.min(CW, CH) * 0.1, 0, Math.PI * 2); ctx.stroke();
   ctx.fillStyle = 'rgba(255,255,255,0.6)';
   ctx.beginPath(); ctx.arc(CW / 2, CH / 2, 3, 0, Math.PI * 2); ctx.fill();
-  const gaw = (CW - PAD * 2) * 0.11, gah = (CH - PAD * 2) * 0.38, gay = (CH - gah) / 2;
-  ctx.strokeRect(PAD, gay, gaw, gah);
-  ctx.strokeRect(CW - PAD - gaw, gay, gaw, gah);
+  // Penalty areas (top & bottom)
+  const gaw = (CW - PAD * 2) * 0.55, gah = (CH - PAD * 2) * 0.12, gax = (CW - gaw) / 2;
+  ctx.strokeRect(gax, PAD, gaw, gah);
+  ctx.strokeRect(gax, CH - PAD - gah, gaw, gah);
+  // Goals (top & bottom)
   ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 4;
-  const gl = gah * 0.45;
-  ctx.beginPath(); ctx.moveTo(PAD, CH / 2 - gl / 2); ctx.lineTo(PAD, CH / 2 + gl / 2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(CW - PAD, CH / 2 - gl / 2); ctx.lineTo(CW - PAD, CH / 2 + gl / 2); ctx.stroke();
+  const gl = gaw * 0.42;
+  ctx.beginPath(); ctx.moveTo(CW / 2 - gl / 2, PAD); ctx.lineTo(CW / 2 + gl / 2, PAD); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(CW / 2 - gl / 2, CH - PAD); ctx.lineTo(CW / 2 + gl / 2, CH - PAD); ctx.stroke();
 }
 
 // ── Object rendering ──────────────────────────────────────────────────────────
