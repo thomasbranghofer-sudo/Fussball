@@ -23,16 +23,13 @@ const COL = {
   tags:             6,  // F
   niveau:           7,  // G
   dauer:            8,  // H
-  spieleranzahl:    9,  // I
+  anzahlSpieler:    9,  // I
   aufstellungsform: 12, // L
   bewegungsstruktur:13, // M
   intensitaet:      14, // N
-  raumgroesse:      15, // O
-  feldform:         16, // P
-  mitTor:           17, // Q
-  materialSpieler:  18, // R
-  materialGruppe:   19, // S
-  bewertung:        21, // U
+  anzahlHuetchen:   15, // O
+  anzahlTore:       16, // P
+  sonstigeDetails:  17, // Q
   notizen:          22, // V
 };
 

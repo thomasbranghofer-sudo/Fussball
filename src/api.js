@@ -7,20 +7,14 @@ const SCHEMA = `{
   "tags": "string|null",
   "niveau": "U8|U10|U12|U14|U16|U19|Erwachsene|Alle|null",
   "dauer": "number|null",
-  "spieleranzahl": "number|null",
+  "anzahlSpieler": "number|null",
   "aufstellungsform": "Kreis|Reihen gegenüber|Freie Verteilung|Linie|Viereck|null",
   "bewegungsstruktur": "Mit Ball|Ohne Ball|Passdreiecke|1v1|2v1|Rondo|Spielform|null",
   "intensitaet": "Niedrig|Mittel|Hoch|null",
-  "raumgroesse": "string|null",
-  "feldform": "Rechteck|Quadrat|Kreis|Freiform|null",
-  "mitTor": "Ja|Nein|null",
-  "materialSpieler": "string|null",
-  "materialGruppe": "string|null",
-  "bewertung": null,
-  "anzahlHuetchen": "string|null",
-  "anzahlMinitore": "string|null",
-  "sonstigeMaterialien": "string|null",
-  "sonstigeAnalyseDetails": "string|null"
+  "anzahlHuetchen": "number|null",
+  "anzahlTore": "number|null",
+  "sonstigeDetails": "string|null",
+  "notizen": "string|null"
 }`;
 
 const SYSTEM_PROMPT = `Du bist ein erfahrener Fußball-Trainer und Experte für Trainingsplanung. Analysiere Fußball-Trainingsvideos anhand von Titel, Beschreibung, Untertitel/Transkript und Screenshots und leite die Eigenschaften präzise ab.
@@ -32,21 +26,14 @@ Hinweise zur Analyse:
 - tags: 3–6 kommagetrennte Schlagwörter, die die Übung beschreiben (z.B. "pressing, ballbesitz, 4v2, rondo")
 - niveau: Aus Titel oder Beschreibung ableiten, sonst "Alle"
 - dauer: Aus Beschreibung entnehmen oder aus Videostruktur schätzen (in Minuten)
-- spieleranzahl: Nur die aktiv spielenden Feldspieler zählen (keine Torhüter, wenn nicht klar erkennbar)
+- anzahlSpieler: Nur die aktiv spielenden Feldspieler zählen (nur Zahl, kein Text)
 - aufstellungsform: Startaufstellung zu Beginn der Übung (z.B. "Kreis" bei Rondos, "Reihen gegenüber" bei Passstaffeln)
 - bewegungsstruktur: Dominantes Muster – z.B. "Rondo" bei Ballbesitz im Kreis, "1v1" bei Zweikämpfen, "Spielform" bei freiem Spiel
 - intensitaet: Niedrig = Passspiele/Koordination; Mittel = Positionsspiele; Hoch = Pressing/Kondition/Zweikämpfe
-- raumgroesse: Feldmaße in Metern (z.B. "20x15m", "30x20m") oder Referenz (z.B. "Strafraum", "halbes Spielfeld")
-- feldform: Geometrie des Übungsfeldes (Rechteck ist der Normalfall)
-- mitTor: "Ja" nur bei echten Toren, nicht bei Hütchentoren oder Minitoren
-- materialSpieler: Ausrüstung die jeder Spieler braucht (z.B. "1 Ball", "1 Ball, 1 Leibchen")
-- materialGruppe: Geteilte Ausrüstung (z.B. "8 Hütchen, 4 Stangen, 2 Minitore")
-- bewertung: Immer null – wird manuell vergeben
-- notizen: Coaching-Hinweise, Varianten, Fehlerbilder oder besondere Merkmale aus der Beschreibung
-- anzahlHuetchen: zähle alle Hütchen aus den Screenshots
-- anzahlMinitore: zähle alle Minitore aus den Screenshots
-- sonstigeMaterialien: nenne alle sonstigen Materialien aus den Screenshots
-- sonstigeAnalyseDetails: nenne alls sonstigen Details aus den Screenshots
+- anzahlHuetchen: Geschätzte Anzahl Hütchen im Einsatz (nur Zahl, null wenn keine erkennbar)
+- anzahlTore: Anzahl regulärer Tore (nur große Tore zählen, keine Minitore, null wenn keine)
+- sonstigeDetails: Alle weiteren relevanten Infos die nicht in andere Felder passen – z.B. Feldgröße, Taktikhinweise, Besonderheiten der Übung, verwendetes Material außer Hütchen/Tore
+- notizen: Coaching-Hinweise, Varianten und Fehlerbilder aus Beschreibung oder Untertiteln
 
 Antworte NUR mit einem validen JSON-Objekt ohne Markdown-Formatierung. Setze unbekannte Felder auf null. Schema:\n${SCHEMA}`;
 
