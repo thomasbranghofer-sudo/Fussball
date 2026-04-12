@@ -20,7 +20,28 @@ const SCHEMA = `{
   "notizen": "string|null"
 }`;
 
-const SYSTEM_PROMPT = `Du bist ein Fußball-Trainingsexperte. Analysiere YouTube-Trainingsvideos anhand ihrer URL, dem Videotitel und bis zu 4 Screenshots aus verschiedenen Zeitpunkten des Videos (Anfang, 25%, 50%, 75%). Antworte NUR mit einem validen JSON-Objekt ohne Markdown-Formatierung. Unbekannte Felder setze auf null. Halte dich exakt an dieses Schema:\n${SCHEMA}`;
+const SYSTEM_PROMPT = `Du bist ein erfahrener Fußball-Trainer und Experte für Trainingsplanung. Analysiere Fußball-Trainingsvideos anhand von Titel, Beschreibung und Screenshots und leite die Eigenschaften präzise ab.
+
+Hinweise zur Analyse:
+- titel: Kurzer, prägnanter Name der gezeigten Übung (max. 60 Zeichen, keine Kanal-/Videonamen)
+- trainingsteil: Aufwärmen bei lockeren Koordinations-/Passspielen; Hauptteil bei intensiven Übungen; Spielphase bei freien Spielformen
+- schwerpunkt: Den dominanten Trainingsfokus wählen – bei Spielformen meist "Spielform" oder "Taktik"
+- tags: 3–6 kommagetrennte Schlagwörter, die die Übung beschreiben (z.B. "pressing, ballbesitz, 4v2, rondo")
+- niveau: Aus Titel oder Beschreibung ableiten, sonst "Alle"
+- dauer: Aus Beschreibung entnehmen oder aus Videostruktur schätzen (in Minuten)
+- spieleranzahl: Nur die aktiv spielenden Feldspieler zählen (keine Torhüter, wenn nicht klar erkennbar)
+- aufstellungsform: Startaufstellung zu Beginn der Übung (z.B. "Kreis" bei Rondos, "Reihen gegenüber" bei Passstaffeln)
+- bewegungsstruktur: Dominantes Muster – z.B. "Rondo" bei Ballbesitz im Kreis, "1v1" bei Zweikämpfen, "Spielform" bei freiem Spiel
+- intensitaet: Niedrig = Passspiele/Koordination; Mittel = Positionsspiele; Hoch = Pressing/Kondition/Zweikämpfe
+- raumgroesse: Feldmaße in Metern (z.B. "20x15m", "30x20m") oder Referenz (z.B. "Strafraum", "halbes Spielfeld")
+- feldform: Geometrie des Übungsfeldes (Rechteck ist der Normalfall)
+- mitTor: "Ja" nur bei echten Toren, nicht bei Hütchentoren oder Minitoren
+- materialSpieler: Ausrüstung die jeder Spieler braucht (z.B. "1 Ball", "1 Ball, 1 Leibchen")
+- materialGruppe: Geteilte Ausrüstung (z.B. "8 Hütchen, 4 Stangen, 2 Minitore")
+- bewertung: Immer null – wird manuell vergeben
+- notizen: Coaching-Hinweise, Varianten, Fehlerbilder oder besondere Merkmale aus der Beschreibung
+
+Antworte NUR mit einem validen JSON-Objekt ohne Markdown-Formatierung. Setze unbekannte Felder auf null. Schema:\n${SCHEMA}`;
 
 async function fetchVideoTitle(youtubeUrl, log) {
   try {
@@ -44,6 +65,26 @@ async function toBase64Direct(url) {
   let binary = '';
   for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
+}
+
+async function fetchVideoDescription(videoId, proxyUrl, log) {
+  if (!proxyUrl) return null;
+  try {
+    log('📄 Hole Video-Beschreibung...');
+    const res = await fetch(`${proxyUrl.replace(/\/$/, '')}?description=${videoId}`);
+    if (!res.ok) throw new Error(`Status ${res.status}`);
+    const data = await res.json();
+    if (data.description) {
+      const preview = data.description.substring(0, 80).replace(/\n/g, ' ');
+      log(`📄 Beschreibung: „${preview}${data.description.length > 80 ? '…' : ''}"`);
+      return data.description;
+    }
+    log('ℹ️ Keine Beschreibung gefunden');
+    return null;
+  } catch (e) {
+    log(`⚠️ Beschreibung nicht verfügbar: ${e.message}`);
+    return null;
+  }
 }
 
 async function fetchFrames(videoId, proxyUrl, log) {
@@ -87,14 +128,19 @@ export async function analyzeVideo(youtubeUrl, apiKey, proxyUrl = '', log = () =
   const usingProxy = !!proxyUrl.trim();
   const videoId = extractYouTubeId(youtubeUrl);
 
-  const [title, frames] = await Promise.all([
+  const [title, description, frames] = await Promise.all([
     fetchVideoTitle(youtubeUrl, log),
+    videoId ? fetchVideoDescription(videoId, proxyUrl, log) : Promise.resolve(null),
     videoId ? fetchFrames(videoId, proxyUrl, log) : Promise.resolve([]),
   ]);
+
+  // Limit description length to avoid token bloat
+  const descTrimmed = description ? description.substring(0, 800) + (description.length > 800 ? '\n[…gekürzt]' : '') : null;
 
   const labels = ['Anfang', '25%', '50%', '75%'];
   const textContent = [
     title ? `Video-Titel: „${title}"` : '',
+    descTrimmed ? `Video-Beschreibung:\n${descTrimmed}` : '',
     `YouTube-URL: ${youtubeUrl}`,
     frames.length > 0
       ? `Es wurden ${frames.length} Screenshots beigefügt: ${frames.map(f => labels[f.index] ?? `Frame ${f.index}`).join(', ')}.`

@@ -45,6 +45,36 @@ export default {
 
     const url = new URL(request.url);
 
+    // ── GET /?description=VIDEO_ID → YouTube-Beschreibung extrahieren ────────
+    if (request.method === 'GET') {
+      const descId = url.searchParams.get('description');
+      if (descId) {
+        try {
+          const pageRes = await fetch(`https://www.youtube.com/watch?v=${descId}`, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+              'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8',
+            },
+          });
+          const html = await pageRes.text();
+          // Extract shortDescription from ytInitialPlayerResponse embedded JSON
+          const match = html.match(/"shortDescription":"((?:[^"\\]|\\.)*)"/);
+          if (match) {
+            const desc = match[1]
+              .replace(/\\n/g, '\n')
+              .replace(/\\t/g, ' ')
+              .replace(/\\"/g, '"')
+              .replace(/\\\\/g, '\\')
+              .trim();
+            return json({ description: desc });
+          }
+          return json({ description: null });
+        } catch (e) {
+          return json({ description: null });
+        }
+      }
+    }
+
     // ── GET /?frames=VIDEO_ID → alle 4 Frames als base64 ────────────────────
     if (request.method === 'GET') {
       const videoId = url.searchParams.get('frames');
