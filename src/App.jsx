@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { FIELDS } from './fields.js';
-import { analyzeVideo, analyzeImages, saveToSheet } from './api.js';
+import { analyzeVideo, analyzeImages, saveToSheet, resizeImageToBase64 } from './api.js';
 import { extractYouTubeId } from './utils.js';
 import SketchCanvas from './SketchCanvas.jsx';
 
@@ -141,6 +141,20 @@ const S = {
     borderRadius: 8, padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
   },
   copyBtnDone: { background: '#0a3d15' },
+  saveBtn: {
+    background: '#1a237e', color: '#9fa8da', border: '1px solid #3949ab',
+    borderRadius: 8, padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+  },
+  saveBtnActive: { background: '#283593', color: '#fff' },
+  saveBtnLoading: { opacity: 0.6, cursor: 'not-allowed' },
+  saveSuccess: {
+    marginTop: 10, padding: '10px 14px', borderRadius: 8, fontSize: 13,
+    background: 'rgba(27,94,32,0.3)', border: '1px solid #388e3c', color: '#69f0ae',
+  },
+  saveErrBox: {
+    marginTop: 10, padding: '10px 14px', borderRadius: 8, fontSize: 13,
+    background: 'rgba(198,40,40,0.15)', border: '1px solid #c62828', color: '#ef9a9a',
+  },
 
   fieldGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 12, marginTop: 4 },
   fieldCard: {
@@ -235,7 +249,11 @@ export default function App() {
   const [logs, setLogs]             = useState([]);
   const [showLog, setShowLog]       = useState(false);
   const [showSketch, setShowSketch] = useState(false);
-  const logRef = useRef(null);
+  const [saving, setSaving]         = useState(false);
+  const [saveError, setSaveError]   = useState(null);
+  const [saveSuccess, setSaveSuccess] = useState(null);
+  const logRef    = useRef(null);
+  const sketchRef = useRef(null);
 
   const score = edited
     ? FIELDS.filter((f) => edited[f.key] !== null && edited[f.key] !== undefined && edited[f.key] !== '').length
@@ -333,6 +351,29 @@ export default function App() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const handleSave = useCallback(async () => {
+    if (!proxyUrl.trim()) {
+      setSaveError('Bitte zuerst die Cloudflare Worker URL in den Einstellungen eintragen.');
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+    try {
+      const skizzeBase64 = showSketch ? (sketchRef.current?.getPng() ?? null) : null;
+      const bilderBase64 = mode === 'images' && imageFiles.length > 0
+        ? await Promise.all(imageFiles.map(f => resizeImageToBase64(f)))
+        : null;
+      const srcUrl = mode === 'youtube' ? url : '';
+      const row = await saveToSheet(srcUrl, edited, proxyUrl, skizzeBase64, bilderBase64);
+      setSaveSuccess(`In Zeile ${row} gespeichert${skizzeBase64 ? ' · Skizze in Drive' : ''}${bilderBase64 ? ` · ${bilderBase64.length} Bild(er) in Drive` : ''}`);
+    } catch (e) {
+      setSaveError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }, [proxyUrl, showSketch, mode, url, edited, imageFiles]);
 
   // ── Drag & Drop ──────────────────────────────────────────────────────────
 
@@ -497,8 +538,19 @@ export default function App() {
                 <button style={{ ...S.copyBtn, ...(copied ? S.copyBtnDone : {}) }} onClick={handleCopy}>
                   {copied ? '✓ Kopiert!' : '📋 Tab-Zeile kopieren'}
                 </button>
+                {proxyUrl.trim() && (
+                  <button
+                    style={{ ...S.saveBtn, ...(saving ? S.saveBtnLoading : S.saveBtnActive) }}
+                    onClick={handleSave}
+                    disabled={saving}
+                  >
+                    {saving ? '⏳ Speichern…' : '☁️ In Sheet + Drive speichern'}
+                  </button>
+                )}
               </div>
             </div>
+            {saveSuccess && <div style={S.saveSuccess}>✓ {saveSuccess}</div>}
+            {saveError   && <div style={S.saveErrBox}>⚠ {saveError}</div>}
 
             <div style={S.fieldGrid}>
               {FIELDS.map((field) => {
@@ -546,7 +598,7 @@ export default function App() {
               Spielfeld zeichnen · Spieler & Hütchen setzen · als PNG speichern
             </span>
           </div>
-          {showSketch && <SketchCanvas skizzeData={edited?.skizze ?? null} />}
+          {showSketch && <SketchCanvas ref={sketchRef} skizzeData={edited?.skizze ?? null} />}
         </div>
       </div>
     </div>

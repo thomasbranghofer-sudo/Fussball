@@ -143,7 +143,7 @@ async function fetchFrames(videoId, proxyUrl, log) {
 }
 
 // Resize an image File to max 1280px and return base64 JPEG
-function resizeImageToBase64(file) {
+export function resizeImageToBase64(file) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
@@ -281,12 +281,15 @@ export async function analyzeImages(imageFiles, context, apiKey, proxyUrl = '', 
   return sendToClaude([...imageBlocks, { type: 'text', text: textParts }], apiKey, proxyUrl, log);
 }
 
-export async function saveToSheet(youtubeUrl, fields, proxyUrl) {
+export async function saveToSheet(youtubeUrl, fields, proxyUrl, skizzeBase64 = null, bilderBase64 = null) {
   const endpoint = `${proxyUrl.replace(/\/$/, '')}?save=1`;
+  const body = { url: youtubeUrl, ...fields };
+  if (skizzeBase64) body.skizzeBase64 = skizzeBase64;
+  if (bilderBase64?.length) body.bilderBase64 = bilderBase64;
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({ url: youtubeUrl, ...fields }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`HTTP-Fehler ${res.status}`);
   const data = await res.json();

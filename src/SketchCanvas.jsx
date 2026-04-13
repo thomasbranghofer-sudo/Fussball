@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 
 const CW = 360, CH = 540, PAD = 20;
 const PLAYER_R = 14, CONE_S = 12, BALL_R = 10, RING_R = 16;
@@ -248,7 +248,7 @@ const S = {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function SketchCanvas({ skizzeData }) {
+const SketchCanvas = forwardRef(function SketchCanvas({ skizzeData }, ref) {
   const fieldRef = useRef(null);
   const objRef   = useRef(null);
 
@@ -432,6 +432,18 @@ export default function SketchCanvas({ skizzeData }) {
 
   const selectedObj = objects.find(o => o.id === selectedId);
 
+  useImperativeHandle(ref, () => ({
+    getPng() {
+      if (!fieldRef.current || !objRef.current) return null;
+      const out = document.createElement('canvas');
+      out.width = CW; out.height = CH;
+      const ctx = out.getContext('2d');
+      ctx.drawImage(fieldRef.current, 0, 0);
+      ctx.drawImage(objRef.current, 0, 0);
+      return out.toDataURL('image/png').split(',')[1];
+    },
+  }), []);
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -491,4 +503,6 @@ export default function SketchCanvas({ skizzeData }) {
       </div>
     </div>
   );
-}
+});
+
+export default SketchCanvas;
