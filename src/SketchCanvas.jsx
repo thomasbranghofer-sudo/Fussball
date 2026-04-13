@@ -1,7 +1,8 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 
 const CW = 360, CH = 540, PAD = 20;
-const PLAYER_R = 14, CONE_S = 12;
+const PLAYER_R = 14, CONE_S = 12, BALL_R = 10, RING_R = 16;
+const LADDER_W = 24, LADDER_H = 80;
 const TEAM_COLOR = { A: '#42a5f5', B: '#ef5350', N: '#e0e0e0' };
 
 // ── Field background ──────────────────────────────────────────────────────────
@@ -87,6 +88,36 @@ function renderObjects(canvas, objects, selectedId, arrowPreview) {
       ctx.closePath(); ctx.fillStyle = '#ff9800'; ctx.fill();
       ctx.strokeStyle = sel ? '#fff' : 'rgba(255,255,255,0.5)';
       ctx.lineWidth = sel ? 2 : 1; ctx.stroke();
+    } else if (o.type === 'ball') {
+      ctx.beginPath(); ctx.arc(o.x, o.y, BALL_R, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff'; ctx.fill();
+      ctx.strokeStyle = sel ? '#aef' : '#222'; ctx.lineWidth = sel ? 2 : 1.5; ctx.stroke();
+      // Simple ball panel lines
+      ctx.strokeStyle = '#333'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(o.x, o.y, BALL_R * 0.45, 0, Math.PI * 2); ctx.stroke();
+      for (let a = 0; a < 5; a++) {
+        const ang = (a * Math.PI * 2 / 5) - Math.PI / 2;
+        ctx.beginPath();
+        ctx.moveTo(o.x + Math.cos(ang) * BALL_R * 0.45, o.y + Math.sin(ang) * BALL_R * 0.45);
+        ctx.lineTo(o.x + Math.cos(ang) * BALL_R * 0.92, o.y + Math.sin(ang) * BALL_R * 0.92);
+        ctx.stroke();
+      }
+    } else if (o.type === 'ring') {
+      ctx.beginPath(); ctx.arc(o.x, o.y, RING_R, 0, Math.PI * 2);
+      ctx.strokeStyle = sel ? '#fff' : '#ffd740';
+      ctx.lineWidth = sel ? 4 : 3; ctx.stroke();
+    } else if (o.type === 'ladder') {
+      const x0 = o.x - LADDER_W / 2, y0 = o.y - LADDER_H / 2;
+      ctx.strokeStyle = sel ? '#fff' : '#ce93d8'; ctx.lineWidth = sel ? 2.5 : 2;
+      // Rails
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0, y0 + LADDER_H); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x0 + LADDER_W, y0); ctx.lineTo(x0 + LADDER_W, y0 + LADDER_H); ctx.stroke();
+      // Rungs
+      const numRungs = 5;
+      for (let i = 0; i <= numRungs; i++) {
+        const ry = y0 + (i * LADDER_H / numRungs);
+        ctx.beginPath(); ctx.moveTo(x0, ry); ctx.lineTo(x0 + LADDER_W, ry); ctx.stroke();
+      }
     }
     ctx.restore();
   });
@@ -105,6 +136,15 @@ function hitTest(objects, x, y) {
       return { id: o.id, handle: 'move' };
     if (o.type === 'cone' && Math.hypot(x - o.x, y - o.y) <= CONE_S + 8)
       return { id: o.id, handle: 'move' };
+    if (o.type === 'ball' && Math.hypot(x - o.x, y - o.y) <= BALL_R + 6)
+      return { id: o.id, handle: 'move' };
+    if (o.type === 'ring' && Math.hypot(x - o.x, y - o.y) <= RING_R + 8)
+      return { id: o.id, handle: 'move' };
+    if (o.type === 'ladder') {
+      const x0 = o.x - LADDER_W / 2 - 6, y0 = o.y - LADDER_H / 2 - 6;
+      if (x >= x0 && x <= x0 + LADDER_W + 12 && y >= y0 && y <= y0 + LADDER_H + 12)
+        return { id: o.id, handle: 'move' };
+    }
     if (o.type === 'arrow') {
       if (Math.hypot(x - o.x1, y - o.y1) <= 12) return { id: o.id, handle: 'start' };
       if (Math.hypot(x - o.x2, y - o.y2) <= 12) return { id: o.id, handle: 'end' };
@@ -135,7 +175,22 @@ const PALETTE_TYPES = [
   { key: 'playerB', label: 'Spieler B', color: '#ef5350', type: 'player', team: 'B' },
   { key: 'playerN', label: 'Neutral',   color: '#e0e0e0', type: 'player', team: 'N' },
   { key: 'cone',    label: 'Hütchen',   color: '#ff9800', type: 'cone' },
+  { key: 'ball',    label: 'Ball',      color: '#ffffff', type: 'ball',   icon: 'ball' },
+  { key: 'ring',    label: 'Ring',      color: '#ffd740', type: 'ring',   icon: 'ring' },
+  { key: 'ladder',  label: 'Ko-Leiter', color: '#ce93d8', type: 'ladder', icon: 'ladder' },
 ];
+
+function PaletteIcon({ def }) {
+  if (def.icon === 'ring')
+    return <div style={{ width: 16, height: 16, borderRadius: '50%', background: 'transparent', border: `3px solid ${def.color}`, flexShrink: 0 }} />;
+  if (def.icon === 'ladder')
+    return (
+      <div style={{ width: 10, height: 16, border: `2px solid ${def.color}`, flexShrink: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '1px 0', boxSizing: 'border-box' }}>
+        {[0, 1, 2].map(i => <div key={i} style={{ height: 1, background: def.color }} />)}
+      </div>
+    );
+  return <div style={{ width: 16, height: 16, borderRadius: '50%', background: def.color, flexShrink: 0, border: '1.5px solid rgba(255,255,255,0.4)' }} />;
+}
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -271,13 +326,10 @@ export default function SketchCanvas({ skizzeData }) {
   // ── Add from palette ────────────────────────────────────────────────────────
 
   const addObject = (def) => {
-    // Place at center with small random offset to avoid stacking
     const offset = () => (Math.random() - 0.5) * 60;
-    const newObj = def.type === 'player'
-      ? { id: nextId(), type: 'player', x: CW / 2 + offset(), y: CH / 2 + offset(), team: def.team }
-      : { id: nextId(), type: 'cone',   x: CW / 2 + offset(), y: CH / 2 + offset() };
-    const newObjs = [...objects, newObj];
-    commit(newObjs);
+    const base = { id: nextId(), type: def.type, x: CW / 2 + offset(), y: CH / 2 + offset() };
+    const newObj = def.type === 'player' ? { ...base, team: def.team } : base;
+    commit([...objects, newObj]);
     setSelected(newObj.id);
   };
 
@@ -389,7 +441,7 @@ export default function SketchCanvas({ skizzeData }) {
         <div style={S.paletteTitle}>Objekte</div>
         {PALETTE_TYPES.map(def => (
           <button key={def.key} style={S.paletteBtn(def.color)} onClick={() => addObject(def)} title={`${def.label} hinzufügen`}>
-            <div style={S.paletteDot(def.color)} />
+            <PaletteIcon def={def} />
             <span style={{ fontSize: 11 }}>{def.label}</span>
           </button>
         ))}
