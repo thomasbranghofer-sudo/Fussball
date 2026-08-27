@@ -49,6 +49,8 @@ Hinweise zur Analyse:
     Wichtig: Nutze den gesamten Feldbereich sinnvoll. Bei Rondos: Spieler im Kreis um Mitte. Bei Spielformen: Spieler auf beiden Hälften verteilen. Hütchen als Eckpunkte des Übungsfelds.
     null nur wenn kein sinnvolles Layout möglich.
 
+Falls der Seiteninhalt nicht auf Deutsch ist, übersetze alle Feldwerte ins Deutsche (titel, tags, notizen, sonstigeDetails).
+
 Antworte NUR mit einem validen JSON-Objekt ohne Markdown-Formatierung. Setze unbekannte Felder auf null. Schema:\n${SCHEMA}`;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -145,7 +147,7 @@ async function fetchFrames(videoId, proxyUrl, log) {
 }
 
 // Resize an image File to max 1280px and return base64 JPEG
-function resizeImageToBase64(file) {
+export function resizeImageToBase64(file) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
@@ -274,6 +276,41 @@ export async function analyzeVideo(youtubeUrl, apiKey, proxyUrl = '', log = () =
 
   log(`📝 Kontext:\n${textContent}`);
   return sendToClaude(userContent, apiKey, proxyUrl, log);
+}
+
+export async function analyzeExternalPage(pageUrl, apiKey, proxyUrl = '', log = () => {}) {
+  if (!proxyUrl.trim()) throw new Error('Für externe Übungsseiten ist die Cloudflare Worker URL erforderlich.');
+  log('🌐 Lade externe Übungsseite...');
+
+  const res = await fetch(`${proxyUrl.replace(/\/$/, '')}?externalpage=${encodeURIComponent(pageUrl)}`);
+  if (!res.ok) throw new Error(`Seite konnte nicht geladen werden (${res.status})`);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+
+  const { title, description, imageUrl, imageBase64, mediaType, bodyText } = data;
+  if (title) log(`📋 Titel: „${title}"`);
+  if (imageUrl) log(`🖼️ Bild/GIF gefunden: ${imageUrl}`);
+  else log('ℹ️ Kein Bild gefunden');
+
+  const textContent = [
+    title       ? `Übungstitel: „${title}"` : '',
+    description ? `Kurzbeschreibung: ${description}` : '',
+    bodyText    ? `Seiteninhalt:\n${bodyText}` : '',
+    `Übungs-URL: ${pageUrl}`,
+    imageUrl    ? `Bild-/GIF-URL: ${imageUrl}` : '',
+    imageBase64 ? 'Ein Bild/GIF der Übung wurde beigefügt.' : '',
+    '\nAnalysiere diese Fußball-Übung und gib die Eigenschaften als JSON zurück.',
+  ].filter(Boolean).join('\n');
+
+  log(`📝 Kontext:\n${textContent}`);
+
+  const userContent = imageBase64
+    ? [{ type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
+       { type: 'text', text: textContent }]
+    : textContent;
+
+  const result = await sendToClaude(userContent, apiKey, proxyUrl, log);
+  return { ...result, medienLink: imageUrl || null };
 }
 
 export async function analyzeImages(imageFiles, context, apiKey, proxyUrl = '', log = () => {}) {

@@ -116,6 +116,83 @@ export default {
       }
     }
 
+    // ── GET /?externalpage=URL → externe Übungsseite parsen ─────────────────
+    const extUrl = url.searchParams.get('externalpage');
+    if (extUrl) {
+      try {
+        const decodedUrl = decodeURIComponent(extUrl);
+        const pageRes = await fetch(decodedUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36',
+            'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8,es;q=0.7',
+          },
+        });
+        const html = await pageRes.text();
+
+        const ogMatch = (prop) => {
+          const m = html.match(new RegExp(`<meta[^>]+property=["']og:${prop}["'][^>]+content=["']([^"']+)["']`, 'i'))
+                 || html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:${prop}["']`, 'i'));
+          return m?.[1]?.trim() || null;
+        };
+        const metaMatch = (name) => {
+          const m = html.match(new RegExp(`<meta[^>]+name=["']${name}["'][^>]+content=["']([^"']+)["']`, 'i'))
+                 || html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+name=["']${name}["']`, 'i'));
+          return m?.[1]?.trim() || null;
+        };
+
+        const title = ogMatch('title') || html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim() || null;
+        const description = ogMatch('description') || metaMatch('description') || null;
+        let imageUrl = ogMatch('image') || null;
+
+        // Fallback: suche GIF oder erstes relevantes Bild im HTML
+        if (!imageUrl) {
+          const gifM = html.match(/(?:src|data-src)=["']([^"']+\.gif[^"']*?)["']/i);
+          imageUrl = gifM?.[1] || null;
+        }
+        if (!imageUrl) {
+          const imgM = html.match(/(?:src|data-src)=["']([^"']+\.(?:webp|jpg|jpeg|png)[^"']*?)["']/i);
+          imageUrl = imgM?.[1] || null;
+        }
+        // Relative URLs auflösen
+        if (imageUrl && !imageUrl.startsWith('http')) {
+          const base = new URL(decodedUrl);
+          imageUrl = new URL(imageUrl, base.origin).href;
+        }
+
+        // Seitentext extrahieren (ohne Tags/Skripte)
+        const bodyText = html
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&[a-z]+;/gi, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .substring(0, 3000);
+
+        // Bild als base64 laden (max. 4 MB)
+        let imageBase64 = null, mediaType = 'image/jpeg';
+        if (imageUrl) {
+          try {
+            const imgRes = await fetch(imageUrl);
+            if (imgRes.ok) {
+              mediaType = (imgRes.headers.get('content-type') || 'image/jpeg').split(';')[0];
+              const buf = await imgRes.arrayBuffer();
+              if (buf.byteLength < 4 * 1024 * 1024) {
+                const bytes = new Uint8Array(buf);
+                let bin = '';
+                for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+                imageBase64 = btoa(bin);
+              }
+            }
+          } catch (_) {}
+        }
+
+        return json({ title, description, imageUrl, imageBase64, mediaType, bodyText });
+      } catch (e) {
+        return json({ error: e.message });
+      }
+    }
+
     // ── GET /?frames=VIDEO_ID → alle 4 Frames als base64 ────────────────────
     if (request.method === 'GET') {
       const videoId = url.searchParams.get('frames');

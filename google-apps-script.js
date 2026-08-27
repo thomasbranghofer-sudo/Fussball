@@ -31,6 +31,7 @@ const COL = {
   anzahlHuetchen:   15, // O
   anzahlTore:       16, // P
   sonstigeDetails:  17, // Q
+  medienLink:       18, // R
   notizen:          22, // V
 };
 

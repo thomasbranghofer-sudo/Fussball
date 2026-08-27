@@ -13,5 +13,6 @@ export const FIELDS = [
   { key: "anzahlHuetchen",   label: "Anzahl Hütchen",           type: "number",   col: "O" },
   { key: "anzahlTore",       label: "Anzahl Tore",              type: "number",   col: "P" },
   { key: "sonstigeDetails",  label: "Sonstige Analysedetails",  type: "textarea", col: "Q" },
+  { key: "medienLink",       label: "Bild / GIF Link",          type: "url",      col: "R" },
   { key: "notizen",          label: "Notizen / Varianten",      type: "textarea", col: "V" },
 ];

@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { FIELDS } from './fields.js';
-import { analyzeVideo, analyzeImages, saveToSheet } from './api.js';
+import { analyzeVideo, analyzeImages, analyzeExternalPage, saveToSheet, resizeImageToBase64 } from './api.js';
 import { extractYouTubeId } from './utils.js';
 import SketchCanvas from './SketchCanvas.jsx';
 
@@ -184,6 +184,20 @@ document.head.appendChild(styleTag);
 
 function FieldInput({ field, value, onChange }) {
   const val = value ?? '';
+  if (field.type === 'url') {
+    return (
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <input style={{ ...S.fieldInput, flex: 1 }} type="text" value={val}
+          onChange={(e) => onChange(field.key, e.target.value || null)} />
+        {val && (
+          <a href={val} target="_blank" rel="noopener noreferrer"
+            style={{ padding: '7px 10px', borderRadius: 6, background: 'rgba(57,73,171,0.25)', color: '#9fa8da', fontSize: 13, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+            🔗 Öffnen
+          </a>
+        )}
+      </div>
+    );
+  }
   if (field.type === 'select') {
     return (
       <select style={S.fieldSelect} value={val} onChange={(e) => onChange(field.key, e.target.value || null)}>
@@ -298,14 +312,21 @@ export default function App() {
     setError(null);
     setLogs([]);
     if (!proxyUrl.trim() && !apiKey.trim()) { setError('Bitte zuerst den Anthropic API-Key eingeben.'); return; }
-    const videoId = extractYouTubeId(url.trim());
-    if (!videoId) { setError('Kein gültiger YouTube-Link erkannt.'); return; }
-    addLog(`🎬 Starte Analyse für: ${url.trim()}`);
-    addLog(`🆔 Video-ID: ${videoId}`);
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl) { setError('Bitte eine URL eingeben.'); return; }
     setLoading(true);
     setShowLog(true);
     try {
-      const data = await analyzeVideo(url.trim(), apiKey.trim(), proxyUrl, addLog, ytImages);
+      const videoId = extractYouTubeId(trimmedUrl);
+      let data;
+      if (videoId) {
+        addLog(`🎬 YouTube-Analyse: ${trimmedUrl}`);
+        addLog(`🆔 Video-ID: ${videoId}`);
+        data = await analyzeVideo(trimmedUrl, apiKey.trim(), proxyUrl, addLog, ytImages);
+      } else {
+        addLog(`🌐 Externe Übungsseite: ${trimmedUrl}`);
+        data = await analyzeExternalPage(trimmedUrl, apiKey.trim(), proxyUrl, addLog);
+      }
       setEdited({ ...data });
       if (data.skizze) setShowSketch(true);
       addLog('🎉 Analyse abgeschlossen!');
@@ -315,7 +336,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [apiKey, proxyUrl, url, addLog]);
+  }, [apiKey, proxyUrl, url, ytImages, addLog]);
 
   const handleAnalyzeImages = useCallback(async () => {
     setError(null);
@@ -419,7 +440,7 @@ export default function App() {
             /* ── YouTube Mode ── */
             <>
               <div style={S.urlRow}>
-                <input style={S.urlInput} type="url" placeholder="https://www.youtube.com/watch?v=..."
+                <input style={S.urlInput} type="url" placeholder="YouTube-Link oder Übungsseite, z.B. entrenamientosdefutbol.es/…"
                   value={url} onChange={(e) => setUrl(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleAnalyzeVideo(); }}
                   disabled={loading} />
