@@ -24,6 +24,7 @@ const COL = {
   niveau:           7,  // G
   dauer:            8,  // H
   anzahlSpieler:    9,  // I
+  trainingsart:     10, // J
   aufstellungsform: 12, // L
   bewegungsstruktur:13, // M
   intensitaet:      14, // N

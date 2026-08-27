@@ -1,7 +1,8 @@
 export const FIELDS = [
   { key: "titel",            label: "Titel / Beschreibung",    type: "text",     col: "C" },
   { key: "trainingsteil",    label: "Trainingsteil",            type: "select",   col: "D", options: ["Aufwärmen","Hauptteil","Spielphase"] },
-  { key: "schwerpunkt",      label: "Schwerpunkt",              type: "select",   col: "E", options: ["Koordination","Passspiel","Dribbling","Abschluss","Taktik","Kondition","Spielform","Sonstiges"] },
+  { key: "trainingsart",     label: "Trainingsart",             type: "select",   col: "J", options: ["Parkour","Gesamtgruppe","Übung mit Standzeit","Stationsübung","Partnerübung","Kleingruppe","Wettkampfform"] },
+  { key: "schwerpunkt",      label: "Schwerpunkt",              type: "select",   col: "E", options: ["Koordination","Schnelligkeit","Technik","Ballannahme & Passspiel","Ballführung / Dribbling","Torschuss","Kopfball","Spielformen","Turnierformen","Sportartübergreifende Spiele & Spaßübungen"] },
   { key: "tags",             label: "Tags",                     type: "text",     col: "F" },
   { key: "niveau",           label: "Alter / Niveau",           type: "select",   col: "G", options: ["U8","U10","U12","U14","U16","U19","Erwachsene","Alle"] },
   { key: "dauer",            label: "Dauer (Min.)",             type: "number",   col: "H" },

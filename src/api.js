@@ -3,7 +3,8 @@ import { extractYouTubeId } from './utils.js';
 const SCHEMA = `{
   "titel": "string",
   "trainingsteil": "Aufwärmen|Hauptteil|Spielphase|null",
-  "schwerpunkt": "Koordination|Passspiel|Dribbling|Abschluss|Taktik|Kondition|Spielform|Sonstiges|null",
+  "trainingsart": "Parkour|Gesamtgruppe|Übung mit Standzeit|Stationsübung|Partnerübung|Kleingruppe|Wettkampfform|null",
+  "schwerpunkt": "Koordination|Schnelligkeit|Technik|Ballannahme & Passspiel|Ballführung / Dribbling|Torschuss|Kopfball|Spielformen|Turnierformen|Sportartübergreifende Spiele & Spaßübungen|null",
   "tags": "string|null",
   "niveau": "U8|U10|U12|U14|U16|U19|Erwachsene|Alle|null",
   "dauer": "number|null",
@@ -27,7 +28,8 @@ const SYSTEM_PROMPT = `Du bist ein erfahrener Fußball-Trainer und Experte für 
 Hinweise zur Analyse:
 - titel: Kurzer, prägnanter Name der gezeigten Übung (max. 60 Zeichen, keine Kanal-/Videonamen)
 - trainingsteil: Aufwärmen bei lockeren Koordinations-/Passspielen; Hauptteil bei intensiven Übungen; Spielphase bei freien Spielformen
-- schwerpunkt: Den dominanten Trainingsfokus wählen – bei Spielformen meist "Spielform" oder "Taktik"
+- trainingsart: Organisationsform – Parkour bei Stationsparcours, Gesamtgruppe wenn alle gleichzeitig mitmachen, Übung mit Standzeit wenn Spieler warten, Wettkampfform bei Turnierstruktur
+- schwerpunkt: Den dominanten Trainingsfokus wählen – exakt einen der vorgegebenen Werte
 - tags: 3–6 kommagetrennte Schlagwörter, die die Übung beschreiben (z.B. "pressing, ballbesitz, 4v2, rondo")
 - niveau: Aus Titel oder Beschreibung ableiten, sonst "Alle"
 - dauer: Aus Beschreibung entnehmen oder aus Videostruktur schätzen (in Minuten)
@@ -218,7 +220,7 @@ async function sendToClaude(userContent, apiKey, proxyUrl, log) {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export async function analyzeVideo(youtubeUrl, apiKey, proxyUrl = '', log = () => {}) {
+export async function analyzeVideo(youtubeUrl, apiKey, proxyUrl = '', log = () => {}, extraImageFiles = []) {
   const videoId = extractYouTubeId(youtubeUrl);
 
   const [title, pageInfo, frames] = await Promise.all([
@@ -239,18 +241,35 @@ export async function analyzeVideo(youtubeUrl, apiKey, proxyUrl = '', log = () =
     transcript ? `Gesprochener Inhalt (Auto-Untertitel):\n${transcript}` : '',
     `YouTube-URL: ${youtubeUrl}`,
     frames.length > 0
-      ? `Es wurden ${frames.length} Screenshots beigefügt: ${frames.map(f => labels[f.index] ?? `Frame ${f.index}`).join(', ')}.`
-      : 'Keine Screenshots verfügbar.',
+      ? `Es wurden ${frames.length} YouTube-Thumbnails beigefügt: ${frames.map(f => labels[f.index] ?? `Frame ${f.index}`).join(', ')}.`
+      : 'Keine YouTube-Thumbnails verfügbar.',
+    extraBlocks.length > 0
+      ? `Zusätzlich wurden ${extraBlocks.length} Screenshot(s) der Übung vom Nutzer hochgeladen – diese zeigen aufeinanderfolgende Schritte der Übung und sind besonders relevant für die Analyse.`
+      : '',
     '\nAnalysiere dieses Fußball-Trainingsvideo und gib die Eigenschaften als JSON zurück.',
   ].filter(Boolean).join('\n');
+
+  // Extra screenshots uploaded by the user
+  let extraBlocks = [];
+  if (extraImageFiles.length > 0) {
+    log(`📎 Verarbeite ${extraImageFiles.length} zusätzliche Screenshot(s)...`);
+    extraBlocks = await Promise.all(
+      extraImageFiles.map(async (file, i) => {
+        const base64 = await resizeImageToBase64(file);
+        log(`✅ Screenshot ${i + 1}: ${file.name}`);
+        return { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } };
+      })
+    );
+  }
 
   const imageBlocks = frames.map((f) => ({
     type: 'image',
     source: { type: 'base64', media_type: f.mediaType, data: f.base64 },
   }));
 
-  const userContent = frames.length > 0
-    ? [...imageBlocks, { type: 'text', text: textContent }]
+  const allImages = [...imageBlocks, ...extraBlocks];
+  const userContent = allImages.length > 0
+    ? [...allImages, { type: 'text', text: textContent }]
     : textContent;
 
   log(`📝 Kontext:\n${textContent}`);

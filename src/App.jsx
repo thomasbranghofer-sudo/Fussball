@@ -227,6 +227,12 @@ export default function App() {
   const [imageContext, setImageContext] = useState('');
   const fileInputRef                = useRef(null);
 
+  // YouTube mode – extra screenshots
+  const [ytImages, setYtImages]         = useState([]);
+  const [ytPreviews, setYtPreviews]     = useState([]);
+  const [ytDragOver, setYtDragOver]     = useState(false);
+  const ytFileInputRef                  = useRef(null);
+
   // Shared
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState(null);
@@ -268,6 +274,17 @@ export default function App() {
     });
   }, []);
 
+  const addYtImages = useCallback((files) => {
+    const valid = Array.from(files).filter(f => f.type.startsWith('image/'));
+    setYtImages(prev => [...prev, ...valid].slice(0, MAX_IMAGES));
+    setYtPreviews(prev => [...prev, ...valid.map(f => URL.createObjectURL(f))].slice(0, MAX_IMAGES));
+  }, []);
+
+  const removeYtImage = useCallback((index) => {
+    setYtImages(prev => prev.filter((_, i) => i !== index));
+    setYtPreviews(prev => { URL.revokeObjectURL(prev[index]); return prev.filter((_, i) => i !== index); });
+  }, []);
+
   const switchMode = (newMode) => {
     setMode(newMode);
     setError(null);
@@ -288,7 +305,7 @@ export default function App() {
     setLoading(true);
     setShowLog(true);
     try {
-      const data = await analyzeVideo(url.trim(), apiKey.trim(), proxyUrl, addLog);
+      const data = await analyzeVideo(url.trim(), apiKey.trim(), proxyUrl, addLog, ytImages);
       setEdited({ ...data });
       if (data.skizze) setShowSketch(true);
       addLog('🎉 Analyse abgeschlossen!');
@@ -400,17 +417,51 @@ export default function App() {
         <div style={S.inputSection}>
           {mode === 'youtube' ? (
             /* ── YouTube Mode ── */
-            <div style={S.urlRow}>
-              <input style={S.urlInput} type="url" placeholder="https://www.youtube.com/watch?v=..."
-                value={url} onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleAnalyzeVideo(); }}
-                disabled={loading} />
-              <button
-                style={{ ...S.analyzeBtn, ...(loading ? S.analyzeBtnLoading : {}) }}
-                onClick={handleAnalyzeVideo} disabled={loading}>
-                {loading ? 'Analysiere…' : 'Analysieren'}
-              </button>
-            </div>
+            <>
+              <div style={S.urlRow}>
+                <input style={S.urlInput} type="url" placeholder="https://www.youtube.com/watch?v=..."
+                  value={url} onChange={(e) => setUrl(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleAnalyzeVideo(); }}
+                  disabled={loading} />
+                <button
+                  style={{ ...S.analyzeBtn, ...(loading ? S.analyzeBtnLoading : {}) }}
+                  onClick={handleAnalyzeVideo} disabled={loading}>
+                  {loading ? 'Analysiere…' : 'Analysieren'}
+                </button>
+              </div>
+
+              {/* Optional screenshots for YouTube mode */}
+              <div
+                style={{
+                  marginTop: 10, border: `1.5px dashed ${ytDragOver ? '#3949ab' : 'rgba(255,255,255,0.12)'}`,
+                  borderRadius: 8, padding: '10px 14px', cursor: 'pointer',
+                  background: ytDragOver ? 'rgba(57,73,171,0.07)' : 'transparent',
+                  transition: 'border-color 0.15s',
+                }}
+                onClick={() => ytFileInputRef.current?.click()}
+                onDrop={(e) => { e.preventDefault(); setYtDragOver(false); addYtImages(e.dataTransfer.files); }}
+                onDragOver={(e) => { e.preventDefault(); setYtDragOver(true); }}
+                onDragLeave={() => setYtDragOver(false)}
+              >
+                <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>
+                  📎 Screenshots der Übung hinzufügen (optional) – helfen Claude bei der Analyse
+                </span>
+                {ytPreviews.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}
+                    onClick={(e) => e.stopPropagation()}>
+                    {ytPreviews.map((src, i) => (
+                      <div key={i} style={{ position: 'relative', width: 56, height: 56 }}>
+                        <img src={src} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '1px solid rgba(255,255,255,0.15)', display: 'block' }} />
+                        <button style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: '50%', background: '#c62828', color: '#fff', border: '2px solid #060f1e', cursor: 'pointer', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}
+                          onClick={() => removeYtImage(i)}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <input ref={ytFileInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+                onChange={(e) => addYtImages(e.target.files)} />
+            </>
           ) : (
             /* ── Images Mode ── */
             <>
